@@ -44,9 +44,15 @@ button.tool{background:transparent;color:var(--text);border:0;padding:6px 8px;fo
 button.tool svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8}
 button.tool.active{color:var(--sign)}
 button:focus-visible,input:focus-visible,select:focus-visible,label.btn:focus-within{outline:3px solid #fff;outline-offset:2px}
-.side{position:fixed;right:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:5}
-.side button{width:46px;height:46px;padding:0;font-size:1.4rem;background:var(--glass);color:var(--text);border:1px solid var(--line)}
-.side button.shutter{background:var(--sign);color:var(--ink);border:0}
+.side{position:fixed;right:8px;bottom:calc(128px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:5}
+.side .grp{display:flex;flex-direction:column;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--glass)}
+.side button{width:52px;min-height:48px;padding:4px 0;font:600 .72rem/1.1 "Barlow Condensed",sans-serif;letter-spacing:.03em;background:transparent;color:var(--text);border:0;border-radius:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.side .grp button+button{border-top:1px solid var(--line)}
+.side button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9}
+.side button.shutter{width:56px;height:56px;border-radius:50%;background:transparent;border:4px solid #fff;align-self:center;padding:0}
+.side button.shutter span{display:block;width:40px;height:40px;border-radius:50%;background:#fff}
+.side button.shutter:active span{background:var(--sign)}
+body.m-pano #btnAuto, body.m-photo #btnAuto{display:none}
 #intro{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(180deg,#27414f 0%,#101a20 100%);overflow:auto}
 .card{max-width:460px;width:100%}
 .card h1{font:700 2.8rem/1 "Barlow Condensed",sans-serif;margin:0 0 6px}
@@ -77,12 +83,16 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
 .list{list-style:none;margin:0;padding:0}
 .list li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
 .list li .meta{font-size:.82rem;color:var(--muted)}
-.list li button{padding:6px 10px;font-size:.9rem}
+.list li button{padding:6px 12px;font-size:.95rem;min-height:44px}
 .list .acts{display:flex;gap:6px;flex-shrink:0}
-#toast{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:15;background:var(--glass);border:1px solid var(--line);padding:9px 13px;border-radius:6px;font-size:.92rem;max-width:92%;display:none;line-height:1.4}
+#toast{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:15;background:var(--glass);border:1px solid var(--line);padding:9px 13px;border-radius:6px;font-size:.92rem;max-width:92%;width:max-content;display:none;line-height:1.4}
+#toast button{margin-left:10px;padding:4px 10px;font-size:.9rem;vertical-align:middle}
+.chip.tap{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+#detail .x{position:absolute;top:4px;right:4px;z-index:2;background:rgba(0,0,0,.45);color:#fff;border-radius:50%;width:34px;height:34px;padding:0;line-height:34px}
+.list h4{margin:14px 0 2px;font:600 .95rem "Barlow Condensed",sans-serif;color:var(--sign);list-style:none}
 #banner{position:fixed;left:10px;right:10px;top:calc(60px + env(safe-area-inset-top,0px));z-index:6;background:var(--sign);color:var(--ink);padding:9px 12px;border-radius:6px;font-weight:600;display:none;justify-content:space-between;align-items:center;gap:10px}
 #banner button{background:var(--ink);color:#fff;padding:6px 10px}
-#detail{position:fixed;left:10px;right:66px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--glass);border-left:4px solid var(--sign);padding:10px 12px;border-radius:4px;display:none}
+#detail{position:fixed;padding-right:40px!important;left:10px;right:66px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--glass);border-left:4px solid var(--sign);padding:10px 12px;border-radius:4px;display:none}
 #detail b{font:700 1.35rem "Barlow Condensed",sans-serif}
 #detail .d{font-size:.9rem;color:#dfe6ea;margin:3px 0 8px;line-height:1.4}
 #detail .acts{display:flex;gap:6px;flex-wrap:wrap}
@@ -108,18 +118,22 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
 <div id="banner"><span id="bannerText"></span><button id="bannerX">Klaar</button></div>
 
 <div class="side">
-  <button id="zoomIn" aria-label="Inzoomen">+</button>
-  <button id="zoomOut" aria-label="Uitzoomen">−</button>
-  <button id="btnAuto" aria-label="Automatisch uitlijnen op de bergkam" title="Automatisch uitlijnen" style="font:700 .8rem 'Barlow Condensed',sans-serif">AUTO</button>
-  <button id="btnAlign" aria-label="Uitlijnen op een bekende top" title="Uitlijnen">◎</button>
-  <button id="btnShot" class="shutter" aria-label="Foto met namen bewaren" title="Bewaren">⤓</button>
+  <div class="grp">
+    <button id="btnAuto" aria-label="Automatisch uitlijnen op de bergkam"><svg viewBox="0 0 24 24"><path d="M2 18l6-8 4 5 3-4 7 7"/><path d="M12 2v3M4.5 5l1.8 1.8M19.5 5l-1.8 1.8"/></svg>Auto</button>
+    <button id="btnAlign" aria-label="Uitlijnen op een top die je herkent"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>Richt</button>
+  </div>
+  <div class="grp">
+    <button id="zoomIn" aria-label="Inzoomen"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button id="zoomOut" aria-label="Uitzoomen"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+  </div>
+  <button id="btnShot" class="shutter" aria-label="Foto met namen bewaren"><span></span></button>
 </div>
 
 <div class="bar bottom">
   <button class="tool" id="tLive"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Live</button>
   <label class="tool btn" id="tPhoto" style="background:transparent;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;min-width:56px;font-size:.95rem"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Foto<input type="file" accept="image/*" id="filePick"></label>
   <button class="tool" id="tPano"><svg viewBox="0 0 24 24"><path d="M2 19l6-9 4 5 3-4 7 8z"/></svg>Panorama</button>
-  <button class="tool" id="tSearch"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l6 6"/></svg>Zoeken</button>
+  <button class="tool" id="tSearch"><svg viewBox="0 0 24 24"><path d="M2 20l6-10 4 6 3-4 7 8z"/><path d="M8 10V4l4 2-4 2"/></svg>Toppen</button>
   <button class="tool" id="tMore"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Meer</button>
 </div>
 <div id="toast" role="status"></div>
@@ -140,16 +154,16 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   </div>
 </div>
 
-<div class="sheet" id="sheetSearch" role="dialog" aria-label="Zoeken">
-  <h2>Zoeken <button class="x" data-close aria-label="Sluiten">×</button></h2>
-  <input type="search" id="q" placeholder="Naam van een top, of coördinaten zoals 46.02, 7.75" autocomplete="off">
+<div class="sheet" id="sheetSearch" role="dialog" aria-label="Toppen">
+  <h2>Toppen <button class="x" data-close aria-label="Sluiten">×</button></h2>
+  <input type="search" id="q" placeholder="Zoek een top, of plak coördinaten" autocomplete="off">
   <p class="hint">Coördinaten kopieer je uit Google Maps: houd een plek ingedrukt en tik op de getallen.</p>
   <ul class="list" id="results"></ul>
 </div>
 
 <div class="sheet" id="sheetAlign" role="dialog" aria-label="Uitlijnen">
   <h2>Welke top is dit? <button class="x" data-close aria-label="Sluiten">×</button></h2>
-  <p class="hint">Kies de top waar je op tikte. De labels schuiven dan mee.</p>
+  <p class="hint">Kies de top waar je op tikte. Alle namen schuiven dan mee.</p>
   <ul class="list" id="alignList"></ul>
 </div>
 
@@ -158,7 +172,7 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   <div class="row"><label for="dist">Maximale afstand <span id="distV"></span></label><input type="range" id="dist" min="10" max="250" step="5" value="120"></div>
   <div class="row"><label for="fov">Beeldhoek <span id="fovV"></span></label><input type="range" id="fov" min="5" max="120" step="1" value="52">
     <p class="hint">Staan de labels te ver uit elkaar of te dicht op elkaar ten opzichte van de echte toppen? Pas dit aan. In live-modus ijk je zo de camera (wordt onthouden); bij een foto kan het ook met ◎ op twee toppen.</p></div>
-  <label class="check"><input type="checkbox" id="optHidden"> Toon toppen die waarschijnlijk verborgen zijn (gedimd)</label>
+  <label class="check"><input type="checkbox" id="optHidden"> Toon ook verborgen toppen (gedimd)</label>
   <label class="check"><input type="checkbox" id="optSil" checked> Toon bergkammen over de camera</label>
   <label class="check"><input type="checkbox" id="optSlant" checked> Schuine namen (zoals PeakFinder)</label>
   <label class="check"><input type="checkbox" id="optSun" checked> Toon zon en zonnebaan van vandaag</label>
@@ -572,7 +586,7 @@ function onOrient(e, absolute){
   if (e.webkitCompassHeading!=null && e.webkitCompassHeading>=0){
     // iPhone: het kompas is traag en schokkerig, de gyroscoop (alpha) snel maar zonder noorden.
     // Volg de beweging met de gyroscoop en trek het noorden langzaam naar het kompas.
-    st.sensor.kind='ios';
+    st.sensor.kind='ios'; s.acc=e.webkitCompassAccuracy;
     const hr=camHeading(e), cmp=e.webkitCompassHeading;
     if (hr==null){ h=cmp; k=0.25; }
     else {
@@ -636,7 +650,7 @@ function stopCamera(){ const s=video.srcObject; if (s) s.getTracks().forEach(t=>
 
 /* ---------- modes ---------- */
 function setMode(m){
-  st.mode=m; $('detail').style.display='none';
+  st.mode=m; $('detail').style.display='none'; document.body.className='m-'+m;
   video.style.display = m==='live' ? 'block':'none';
   if (m!=='live'){ stopCamera(); st.zoom=1; video.style.transform=''; }
   ['tLive','tPano'].forEach(id=>$(id).classList.remove('active')); $('tPhoto').classList.remove('active');
@@ -665,7 +679,11 @@ async function goLive(){
   setMode('live'); startGPS(); st.target=null;
   if (st.obsSrc!=='gps'){ st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; }
   await perm; await startCamera();
-  setTimeout(()=>{ if (st.mode==='live' && !sensorLive()) toast('Geen kompas ontvangen. Tik opnieuw op Live en sta Beweging en richting toe, of sleep over het beeld.', 7000); }, 3000);
+  setTimeout(()=>{
+    if (st.mode!=='live') return;
+    if (!sensorLive()) toast('Geen kompas ontvangen. Tik opnieuw op Live en sta Beweging en richting toe, of sleep over het beeld.', 7000);
+    else if (!LS.get('tipDone',0) && !st.tipShown){ st.tipShown=true; toast('Tip: staan de namen naast de bergen? Richt op een bergkam met lucht erboven en tik op Auto.', 9000); }
+  }, 4000);
 }
 function goPano(){
   $('intro').style.display='none'; setMode('pano'); startGPS();
@@ -943,21 +961,42 @@ function updateTop(){
   const o=observer(), v=currentView();
   $('hdg').textContent = `${Math.round(v.heading)}° ${dirName(v.heading)}`;
   const chips=[];
-  if (st.obsSrc==='gps' && st.gps) chips.push(['ok',`GPS ±${Math.round(st.gps.acc)} m`]);
-  else if (st.obsSrc==='manual' && st.obsManual) chips.push(['ok',esc(st.obsManual.name||'Eigen standpunt')]);
-  else if (st.obsSrc==='photo' && st.obsPhoto) chips.push(['ok','Locatie uit foto']);
-  else chips.push(['warn retry', st.gpsErr ? st.gpsErr+' · opnieuw' : 'Wachten op locatie']);
-  if (o) chips.push([o.altSrc==='geschat'?'warn':'', `${Math.round(o.alt)} m`]);
-  if (o) chips.push(DEM.state==='loading' ? ['warn','Terrein laden…'] : st.cache&&st.cache.terrain ? ['ok','Terrein'] : ['warn','Geen terrein']);
+  // standpunt: in live alleen bij een probleem, elders als context
+  if (!o) chips.push(['warn retry', st.gpsErr ? st.gpsErr+' · opnieuw' : 'Wachten op locatie']);
+  else if (st.obsSrc==='manual') chips.push(['ok',esc(st.obsManual.name||'Eigen standpunt')]);
+  else if (st.obsSrc==='photo') chips.push(['ok','Locatie uit foto']);
+  else if (st.gps && st.gps.acc>60) chips.push(['warn',`GPS ±${Math.round(st.gps.acc)} m`]);
+  if (o && o.altSrc==='geschat') chips.push(['warn','Hoogte geschat']);
+  if (o && DEM.state==='loading') chips.push(['warn','Terrein laden…']);
+  else if (o && !(st.cache&&st.cache.terrain)) chips.push(['warn','Geen terrein']);
   if (st.osmBusy) chips.push(['warn','Toppen laden…']);
-  if (st.mode==='live') chips.push(sensorLive()? ['ok','Kompas'+(Math.round(st.corr)?` ${st.corr>0?'+':''}${Math.round(st.corr)}°`:'')+(Math.round(st.pcorr)?` ↕${st.pcorr>0?'+':''}${Math.round(st.pcorr)}°`:'')] : ['warn','Geen kompas: sleep']);
-  if (st.mode==='live' && st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
+  if (st.mode==='live'){
+    if (!sensorLive()) chips.push(['warn','Geen kompas: sleep']);
+    else if (st.sensor.acc!=null && (st.sensor.acc<0 || st.sensor.acc>25)) chips.push(['warn','Kompas onnauwkeurig · maak een 8']);
+    const c=Math.round(st.corr), pc=Math.round(st.pcorr);
+    if (c||pc) chips.push(['tap resetcal',`Correctie ${c?`${c>0?'+':''}${c}°`:''}${pc?` ↕${pc>0?'+':''}${pc}°`:''} ×`]);
+    if (st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
+  }
   const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
   if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
 }
 // op de oranje locatiechip tikken: opnieuw om toestemming vragen
-$('chips').addEventListener('click', e=>{ if (e.target.closest('.retry') && st.gpsErr){ st.gpsErr=null; startGPS(); st.obsSrc='gps'; toast('Locatie opnieuw aangevraagd…'); } });
-let toastT; function toast(m,ms=4500){ const t=$('toast'); t.textContent=m; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',ms); }
+$('chips').addEventListener('click', e=>{
+  if (e.target.closest('.retry') && st.gpsErr){ st.gpsErr=null; startGPS(); st.obsSrc='gps'; toast('Locatie opnieuw aangevraagd…'); }
+  if (e.target.closest('.resetcal')) withUndo('Correctie gewist.', ()=>{ st.corr=0; st.pcorr=0; });
+});
+let toastT; function toast(m,ms=4500,act){
+  const t=$('toast'); t.textContent=m;
+  if (act){ const b=document.createElement('button'); b.className='ghost'; b.textContent=act.label; b.onclick=()=>{ t.style.display='none'; act.fn(); }; t.appendChild(b); }
+  t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',ms);
+}
+// kalibratie met 'ongedaan maken'
+function saveCal(){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); LS.set('camk',st.camK); }
+function withUndo(msg, change){
+  const prev={corr:st.corr, pcorr:st.pcorr, camK:st.camK, view:{...st.view}, fov:st.fov};
+  change(); saveCal();
+  toast(msg, 7000, {label:'Ongedaan', fn:()=>{ Object.assign(st,{corr:prev.corr,pcorr:prev.pcorr,camK:prev.camK}); st.view=prev.view; if (st.mode!=='live') setFov(prev.fov); saveCal(); syncFovUi(); }});
+}
 
 /* ---------- interaction ---------- */
 const screenProj = () => makeProj(viewRect(cv.clientWidth,cv.clientHeight), currentView());
@@ -1024,10 +1063,10 @@ function showDetail(p){
   const dh=Math.round(p.alt-o.alt);
   const box=$('detail'); st.selected=p;
   const tag={ai:'aangevuld',custom:'eigen punt',osm:'OpenStreetMap'}[p.kind];
-  box.innerHTML=`<div class="pic" id="dPic"></div><b>${esc(p.name)}</b>${tag?`<span class="ai-tag">${tag}</span>`:''}
+  box.innerHTML=`<button class="x" id="dClose" aria-label="Sluiten">×</button><div class="pic" id="dPic"></div><b>${esc(p.name)}</b>${tag?`<span class="ai-tag">${tag}</span>`:''}
     <div class="d">${p.alt} m hoog, ${(g.d/1000).toFixed(1)} km ver, richting ${Math.round(g.brg)}° ${dirName(g.brg)}.<br>${dh>=0?dh+' m hoger':(-dh)+' m lager'} dan jij. ${p.hidden?'Waarschijnlijk verborgen achter een andere berg.':'Waarschijnlijk zichtbaar.'}</div>
     <p class="wiki" id="dWiki">Foto en info laden…</p>
-    <div class="acts"><button id="dTarget">Richt hierop</button><button class="ghost" id="dStand">Sta op deze top</button><button class="ghost" id="dClose">Sluiten</button></div>`;
+    <div class="acts"><button id="dTarget">Wijs aan</button><button class="ghost" id="dStand">Uitzicht vanaf top</button></div>`;
   box.style.display='block';
   $('dTarget').onclick=()=>{ setTarget(p); box.style.display='none'; };
   $('dStand').onclick=()=>{ setManual(p); if (st.mode!=='pano') setMode('pano'); box.style.display='none'; toast(`Je kijkt nu vanaf ${p.name}.`); };
@@ -1102,8 +1141,8 @@ $('btnAuto').onclick=()=>{
   const cache=buildCache(o); if (!cache.terrain){ toast('Het terrein is nog niet geladen. Probeer zo opnieuw.'); return; }
   const r=autoAlign(cache);
   if (!r) { toast('De bergkam is niet duidelijk genoeg te herkennen. Richt op een heldere skyline, of gebruik ◎.', 6000); return; }
-  st.corr+=r.dh; st.pcorr+=r.dp; LS.set('corr',st.corr); LS.set('pcorr',st.pcorr);
-  toast(`Uitgelijnd op de bergkam: richting ${r.dh>=0?'+':''}${r.dh.toFixed(1)}°, kanteling ${r.dp>=0?'+':''}${r.dp.toFixed(1)}°.`);
+  if (!r.dh && !r.dp){ toast('De kam past al.'); return; }
+  withUndo(`Uitgelijnd op de bergkam (${r.dh>=0?'+':''}${r.dh.toFixed(1)}°, ↕${r.dp>=0?'+':''}${r.dp.toFixed(1)}°).`, ()=>{ st.corr+=r.dh; st.pcorr+=r.dp; LS.set('tipDone',1); });
 };
 function autoAlign(cache){
   const cw=cv.clientWidth, ch=cv.clientHeight, S=0.25, W=Math.round(cw*S), H=Math.round(ch*S);
@@ -1217,6 +1256,23 @@ function renderResults(){
     li.appendChild(b); ul.appendChild(li); return;
   }
   const nq=norm(q);
+  const row=(p,sub)=>{
+    const li=document.createElement('li');
+    li.innerHTML=`<div>${esc(p.name)}${p.kind==='ai'?'<span class="ai-tag">aangevuld</span>':''}<div class="meta">${sub}</div></div>`;
+    const acts=document.createElement('div'); acts.className='acts';
+    const b0=document.createElement('button'); b0.className='ghost'; b0.textContent='Info'; b0.onclick=()=>{ closeSheets(); showDetail(p); }; acts.appendChild(b0);
+    const b1=document.createElement('button'); b1.textContent='Wijs aan'; b1.onclick=()=>{ closeSheets(); setTarget(p); }; acts.appendChild(b1);
+    li.appendChild(acts); ul.appendChild(li);
+  };
+  if (!q && o){
+    // zoals PeakFinder 'zichtbare toppen': wat je vanaf hier echt kunt zien, van links naar rechts in je blikveld
+    const vis=buildCache(o).list.filter(p=>!p.hidden).slice(0,60);
+    const h=document.createElement('h4'); h.textContent=`Zichtbaar vanaf hier (${vis.length}), eerst waar je naar kijkt`; ul.appendChild(h);
+    const hd=currentView().heading; vis.sort((a,b)=>Math.abs(angDiff(a.brg,hd))-Math.abs(angDiff(b.brg,hd)));
+    for (const p of vis) row(p, `${p.alt} m · ${(p.d/1000).toFixed(p.d<10000?1:0)} km · ${Math.round(p.brg)}° ${dirName(p.brg)}`);
+    if (!vis.length){ const li=document.createElement('li'); li.textContent='Nog geen toppen berekend. Wacht tot het terrein geladen is.'; ul.appendChild(li); }
+    return;
+  }
   let list=PEAKLIST.filter(p=>!q||norm(p.name).includes(nq));
   if (o) list=list.map(p=>({p,d:geo(o,p.lat,p.lon).d})).sort((a,b)=>a.d-b.d).map(x=>x.p);
   else list.sort((a,b)=>(a.kind==='osm')-(b.kind==='osm'));
@@ -1224,8 +1280,8 @@ function renderResults(){
     const li=document.createElement('li'); const d=o? ` · ${(geo(o,p.lat,p.lon).d/1000).toFixed(0)} km`:'';
     li.innerHTML=`<div>${esc(p.name)}${p.kind==='ai'?'<span class="ai-tag">aangevuld</span>':''}<div class="meta">${p.alt} m${d}</div></div>`;
     const acts=document.createElement('div'); acts.className='acts';
-    if (o){ const b1=document.createElement('button'); b1.textContent='Toon'; b1.onclick=()=>{ closeSheets(); setTarget(p); }; acts.appendChild(b1); }
-    const b2=document.createElement('button'); b2.className='ghost'; b2.textContent='Sta hier'; b2.onclick=()=>{ setManual(p); if(st.mode!=='pano') setMode('pano'); closeSheets(); toast(`Je kijkt nu vanaf ${p.name}. Sleep om rond te kijken.`); };
+    if (o){ const b1=document.createElement('button'); b1.textContent='Wijs aan'; b1.onclick=()=>{ closeSheets(); setTarget(p); }; acts.appendChild(b1); }
+    const b2=document.createElement('button'); b2.className='ghost'; b2.textContent='Uitzicht'; b2.onclick=()=>{ setManual(p); if(st.mode!=='pano') setMode('pano'); closeSheets(); toast(`Je kijkt nu vanaf ${p.name}. Sleep om rond te kijken.`); };
     acts.appendChild(b2); li.appendChild(acts); ul.appendChild(li);
   }
 }
@@ -1247,7 +1303,7 @@ $('optSil').checked=st.showSil; $('optSlant').checked=st.slant;
 $('optSun').onchange=e=>st.showSun=e.target.checked;
 $('alt').addEventListener('input',e=>{ st.altOverride = e.target.value===''?null:+e.target.value; });
 $('useGps').onclick=()=>{ startGPS(); st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; closeSheets(); toast(st.gps?'Je GPS-locatie wordt gebruikt.':'Wachten op GPS…'); };
-$('resetCorr').onclick=()=>{ st.corr=0; st.pcorr=0; st.camK=1; LS.set('corr',0); LS.set('pcorr',0); LS.set('camk',1); syncFovUi(); toast('Kompas- en camerakalibratie gewist.'); };
+$('resetCorr').onclick=()=>{ withUndo('Kompas- en camerakalibratie gewist.', ()=>{ st.corr=0; st.pcorr=0; st.camK=1; }); syncFovUi(); };
 function renderMore(){
   const o=observer();
   syncFovUi();
