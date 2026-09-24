@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Toppenzoeker Alpen</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Toppen">
+<meta name="theme-color" content="#16212a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sign:#FFD200; --ink:#1a1a1a; --glass:rgba(20,28,34,.82); --line:rgba(255,255,255,.16);
+  --text:#f3f5f6; --muted:#aebbc2; --panel:#16212a; --field:#0e161b; --ok:#7fd48a; --warn:#ffb35c;
+  --sky1:#8fb6d3; --sky2:#e3ecf1; --rock:#5f7280;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --sky1:#1c2f41; --sky2:#40596d; --rock:#26343f; } }
+:root[data-theme="dark"]{ --sky1:#1c2f41; --sky2:#40596d; --rock:#26343f; }
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{margin:0;height:100%;background:#0e1418;color:var(--text);font-family:"Barlow",system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+#stage{position:fixed;inset:0;background:linear-gradient(var(--sky1),var(--sky2));touch-action:none}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+.bar{position:fixed;left:0;right:0;display:flex;gap:8px;align-items:center;padding:8px 10px;z-index:5}
+.top{top:0;padding-top:calc(8px + env(safe-area-inset-top,0px));justify-content:space-between;background:linear-gradient(rgba(0,0,0,.6),transparent)}
+.bottom{bottom:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));justify-content:space-around;background:linear-gradient(transparent,rgba(0,0,0,.65))}
+.heading{font:700 1.7rem/1 "Barlow Condensed",sans-serif}
+.chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end;max-width:65%}
+.chip{font-size:.78rem;padding:3px 7px;border-radius:10px;background:var(--glass);border:1px solid var(--line);white-space:nowrap}
+.chip.ok::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:5px}
+.chip.warn::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:5px}
+button{font:600 1rem "Barlow Condensed",sans-serif;letter-spacing:.02em;border:0;border-radius:6px;padding:10px 14px;cursor:pointer;color:var(--ink);background:var(--sign)}
+button.ghost{background:var(--glass);color:var(--text);border:1px solid var(--line)}
+button.tool{background:transparent;color:var(--text);border:0;padding:6px 8px;font-size:.95rem;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px}
+button.tool svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8}
+button.tool.active{color:var(--sign)}
+button:focus-visible,input:focus-visible,select:focus-visible,label.btn:focus-within{outline:3px solid #fff;outline-offset:2px}
+.side{position:fixed;right:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:5}
+.side button{width:46px;height:46px;padding:0;font-size:1.4rem;background:var(--glass);color:var(--text);border:1px solid var(--line)}
+.side button.shutter{background:var(--sign);color:var(--ink);border:0}
+#intro{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(180deg,#27414f 0%,#101a20 100%);overflow:auto}
+.card{max-width:460px;width:100%}
+.card h1{font:700 2.8rem/1 "Barlow Condensed",sans-serif;margin:0 0 6px}
+.card .sub{color:var(--sign);font:600 1.1rem "Barlow Condensed",sans-serif;margin:0 0 16px}
+.card p{line-height:1.5;color:#dbe3e7;margin:0 0 12px}
+.choice{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.choice button,.choice label.btn{text-align:left;padding:12px 14px}
+.choice small{display:block;font:400 .88rem "Barlow",sans-serif;opacity:.85;margin-top:2px}
+label.btn{display:block;border-radius:6px;cursor:pointer;background:var(--glass);border:1px solid var(--line);font:600 1rem "Barlow Condensed",sans-serif;color:var(--text)}
+label.btn input{position:absolute;opacity:0;width:1px;height:1px}
+.ridge{height:46px;margin:0 -4px 18px;background:var(--sign);clip-path:polygon(0 100%,12% 40%,20% 62%,33% 8%,44% 55%,55% 30%,63% 48%,76% 0,88% 50%,100% 28%,100% 100%)}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:12;background:var(--panel);border-top:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));transform:translateY(105%);transition:transform .22s;max-height:82%;overflow:auto;-webkit-user-select:text;user-select:text}
+.sheet.open{transform:none}
+@media (prefers-reduced-motion: reduce){.sheet{transition:none}}
+.sheet h2{font:700 1.4rem "Barlow Condensed",sans-serif;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+.sheet h3{font:600 1.05rem "Barlow Condensed",sans-serif;margin:18px 0 8px;color:var(--sign)}
+.x{background:transparent;color:var(--muted);font-size:1.5rem;padding:0 6px}
+.row{margin-bottom:12px}
+.row label{display:flex;justify-content:space-between;font-size:.95rem;margin-bottom:4px}
+.row label span{color:var(--sign);font-weight:600}
+.check{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.95rem}
+.check input{width:20px;height:20px;accent-color:var(--sign)}
+input[type=range]{width:100%;accent-color:var(--sign)}
+input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--text);font:inherit;font-size:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px}
+.hint{font-size:.85rem;color:var(--muted);line-height:1.45;margin:4px 0 0}
+.list{list-style:none;margin:0;padding:0}
+.list li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
+.list li .meta{font-size:.82rem;color:var(--muted)}
+.list li button{padding:6px 10px;font-size:.9rem}
+.list .acts{display:flex;gap:6px;flex-shrink:0}
+#toast{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:15;background:var(--glass);border:1px solid var(--line);padding:9px 13px;border-radius:6px;font-size:.92rem;max-width:92%;display:none;line-height:1.4}
+#banner{position:fixed;left:10px;right:10px;top:calc(60px + env(safe-area-inset-top,0px));z-index:6;background:var(--sign);color:var(--ink);padding:9px 12px;border-radius:6px;font-weight:600;display:none;justify-content:space-between;align-items:center;gap:10px}
+#banner button{background:var(--ink);color:#fff;padding:6px 10px}
+#detail{position:fixed;left:10px;right:66px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--glass);border-left:4px solid var(--sign);padding:10px 12px;border-radius:4px;display:none}
+#detail b{font:700 1.35rem "Barlow Condensed",sans-serif}
+#detail .d{font-size:.9rem;color:#dfe6ea;margin:3px 0 8px;line-height:1.4}
+#detail .acts{display:flex;gap:6px;flex-wrap:wrap}
+#detail button{padding:6px 10px;font-size:.9rem}
+.ai-tag{display:inline-block;font-size:.72rem;background:#fff;color:var(--ink);border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+
+<div class="bar top">
+  <div class="heading" id="hdg">–</div>
+  <div class="chips" id="chips"></div>
+</div>
+<div id="banner"><span id="bannerText"></span><button id="bannerX">Klaar</button></div>
+
+<div class="side">
+  <button id="zoomIn" aria-label="Inzoomen">+</button>
+  <button id="zoomOut" aria-label="Uitzoomen">−</button>
+  <button id="btnAlign" aria-label="Uitlijnen op een bekende top" title="Uitlijnen">◎</button>
+  <button id="btnShot" class="shutter" aria-label="Foto met namen bewaren" title="Bewaren">⤓</button>
+</div>
+
+<div class="bar bottom">
+  <button class="tool" id="tLive"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Live</button>
+  <label class="tool btn" id="tPhoto" style="background:transparent;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;min-width:56px;font-size:.95rem"><svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Foto<input type="file" accept="image/*" id="filePick"></label>
+  <button class="tool" id="tPano"><svg viewBox="0 0 24 24"><path d="M2 19l6-9 4 5 3-4 7 8z"/></svg>Panorama</button>
+  <button class="tool" id="tSearch"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l6 6"/></svg>Zoeken</button>
+  <button class="tool" id="tMore"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Meer</button>
+</div>
+<div id="toast" role="status"></div>
+<div id="detail"></div>
+
+<div id="intro">
+  <div class="card">
+    <div class="ridge" aria-hidden="true"></div>
+    <h1>Toppenzoeker</h1>
+    <p class="sub">Alpen: Zwitserland, Frankrijk, Italië, Oostenrijk, Slovenië</p>
+    <p>Welke berg is dat? Richt je camera, laad een foto of bekijk het panorama vanaf eender welke plek. Terrein en toppen komen online uit een hoogtemodel en OpenStreetMap.</p>
+    <div class="choice">
+      <button id="goLive">Live camera<small>Camera, locatie en kompas. Houd je gsm rechtop.</small></button>
+      <label class="btn">Foto labelen<small>Kies een foto uit je galerij. Locatie en richting komen uit de foto als die bewaard zijn.</small><input type="file" accept="image/*" id="filePick2"></label>
+      <button class="ghost" id="goPano">Panorama zonder camera<small>Kijk rond vanaf je locatie of vanaf een top naar keuze.</small></button>
+    </div>
+    <p class="hint" style="margin-top:16px">Tip: tik in Safari op Deel › Zet op beginscherm. Dan opent de Toppenzoeker als app, ook zonder internet.</p>
+  </div>
+</div>
+
+<div class="sheet" id="sheetSearch" role="dialog" aria-label="Zoeken">
+  <h2>Zoeken <button class="x" data-close aria-label="Sluiten">×</button></h2>
+  <input type="search" id="q" placeholder="Naam van een top, of coördinaten zoals 46.02, 7.75" autocomplete="off">
+  <p class="hint">Coördinaten kopieer je uit Google Maps: houd een plek ingedrukt en tik op de getallen.</p>
+  <ul class="list" id="results"></ul>
+</div>
+
+<div class="sheet" id="sheetAlign" role="dialog" aria-label="Uitlijnen">
+  <h2>Welke top is dit? <button class="x" data-close aria-label="Sluiten">×</button></h2>
+  <p class="hint">Kies de top waar je op tikte. De labels schuiven dan mee.</p>
+  <ul class="list" id="alignList"></ul>
+</div>
+
+<div class="sheet" id="sheetMore" role="dialog" aria-label="Instellingen">
+  <h2>Instellingen <button class="x" data-close aria-label="Sluiten">×</button></h2>
+  <div class="row"><label for="dist">Maximale afstand <span id="distV"></span></label><input type="range" id="dist" min="10" max="250" step="5" value="120"></div>
+  <div class="row"><label for="fov">Beeldhoek <span id="fovV"></span></label><input type="range" id="fov" min="5" max="120" step="1" value="52">
+    <p class="hint">Staan de labels te ver uit elkaar of te dicht op elkaar ten opzichte van de echte toppen? Pas dit aan. In live-modus ijk je zo de camera (wordt onthouden); bij een foto kan het ook met ◎ op twee toppen.</p></div>
+  <label class="check"><input type="checkbox" id="optHidden"> Toon toppen die waarschijnlijk verborgen zijn (gedimd)</label>
+  <label class="check"><input type="checkbox" id="optSil" checked> Toon bergkammen over de camera</label>
+  <label class="check"><input type="checkbox" id="optSlant" checked> Schuine namen (zoals PeakFinder)</label>
+  <label class="check"><input type="checkbox" id="optSun" checked> Toon zon en zonnebaan van vandaag</label>
+  <h3>Standpunt</h3>
+  <div class="row"><label for="alt">Mijn hoogte in meter</label><input type="number" id="alt" inputmode="numeric" placeholder="Automatisch"></div>
+  <p class="hint" id="obsInfo"></p>
+  <div class="grid2" style="margin-top:8px"><button class="ghost" id="useGps">Gebruik mijn GPS</button><button class="ghost" id="resetCorr">Kalibratie wissen</button></div>
+  <h3>Toppen</h3>
+  <p class="hint">Ingebouwd: een kleine 200 bekende toppen. Met internet worden alle benoemde toppen rond je standpunt (tot 150 km) uit OpenStreetMap geladen en bewaard.</p>
+  <p class="hint" id="osmInfo"></p>
+  <div id="aiBox">
+  <p class="hint">Laat Claude toppen rond je standpunt aanvullen. Die krijgen een wit bordje, omdat hun ligging minder zeker is.</p>
+  <button id="btnAi" style="width:100%;margin-top:8px">Toppen rond dit standpunt aanvullen</button>
+  <p class="hint" id="aiInfo"></p>
+  </div>
+  <h3>Eigen punt toevoegen</h3>
+  <div class="grid3"><input type="text" id="cpName" placeholder="Naam"><input type="text" id="cpLat" placeholder="Breedte" inputmode="decimal"><input type="text" id="cpLon" placeholder="Lengte" inputmode="decimal"><input type="number" id="cpAlt" placeholder="Hoogte" inputmode="numeric"></div>
+  <button class="ghost" id="cpAdd" style="width:100%;margin-top:8px">Punt toevoegen</button>
+  <ul class="list" id="cpList"></ul>
+  <h3>Tips</h3>
+  <p class="hint">Kalibreer je kompas met een 8-beweging en haal je hoesje weg. Lijn daarna uit met ◎: tik op een top die je herkent en kies de naam. De zon is ook een goed ijkpunt. Tik midden op het scherm om in te zoomen op een drukke plek.</p>
+</div>
+
+<script>
+const PEAKS = [
+["Mont Blanc",45.8326,6.8652,4806],["Mont Maudit",45.8497,6.8756,4465],["Mont Blanc du Tacul",45.8567,6.8883,4248],
+["Dôme du Goûter",45.8417,6.8433,4304],["Aiguille de Bionnassay",45.8358,6.8189,4052],["Aiguille du Midi",45.8786,6.8872,3842],
+["Aiguille des Glaciers",45.7825,6.7864,3816],["Dent du Géant",45.8625,6.9519,4013],["Grandes Jorasses",45.8689,6.9894,4208],
+["Aiguille Verte",45.9347,6.9703,4122],["Les Droites",45.9328,6.9861,4000],["Aiguille d'Argentière",45.9594,7.0219,3901],
+["Mont Dolent",45.9222,7.0464,3820],["Le Brévent",45.9344,6.8375,2525],["Mont Buet",46.0217,6.8514,3096],
+["Dent d'Oche",46.3522,6.7314,2221],["Mont Salève",46.1150,6.1636,1379],["Barre des Écrins",44.9222,6.3597,4102],
+["La Meije",45.0053,6.3083,3984],["Mont Pelvoux",44.8978,6.3769,3943],["Mont Aiguille",44.8414,5.5533,2087],
+["Mont Ventoux",44.1739,5.2789,1909],["Grande Casse",45.4053,6.8278,3855],["Mont Pourri",45.5278,6.8506,3779],
+["Monte Viso",44.6672,7.0903,3841],["Gran Paradiso",45.5178,7.2667,4061],["Grivola",45.5956,7.2575,3969],
+["Monte Emilius",45.6739,7.3847,3559],["Grand Combin",45.9375,7.2992,4314],["Mont Vélan",45.8981,7.2522,3727],
+["Pigne d'Arolla",45.9967,7.4561,3790],["Mont Collon",45.9681,7.5025,3637],["Dent Blanche",46.0342,7.6121,4357],
+["Dent d'Hérens",45.9703,7.6053,4171],["Matterhorn",45.9763,7.6586,4478],["Ober Gabelhorn",46.0386,7.6681,4063],
+["Zinalrothorn",46.0647,7.6903,4221],["Weisshorn",46.1016,7.7162,4506],["Bishorn",46.1167,7.7150,4153],
+["Breithorn",45.9411,7.7478,4164],["Pollux",45.9253,7.7822,4092],["Castor",45.9203,7.7933,4228],
+["Lyskamm",45.9225,7.8356,4527],["Vincent-Pyramide",45.9181,7.8767,4215],["Signalkuppe",45.9272,7.8772,4554],
+["Zumsteinspitze",45.9322,7.8711,4563],["Dufourspitze",45.9369,7.8668,4634],["Nordend",45.9403,7.8683,4609],
+["Dom",46.0939,7.8586,4545],["Täschhorn",46.0836,7.8567,4491],["Alphubel",46.0628,7.8636,4206],
+["Rimpfischhorn",46.0233,7.8839,4199],["Strahlhorn",46.0133,7.9019,4190],["Allalinhorn",46.0461,7.8950,4027],
+["Weissmies",46.1275,8.0119,4017],["Lagginhorn",46.1569,8.0022,4010],["Monte Leone",46.2489,8.1103,3553],
+["Bietschhorn",46.3917,7.8508,3934],["Les Diablerets",46.3036,7.1906,3210],["Dents du Midi",46.1631,6.9236,3257],
+["Grand Muveran",46.2383,7.1286,3051],["Rochers de Naye",46.4319,6.9767,2042],["Moléson",46.5483,7.0172,2002],
+["Wildstrubel",46.3997,7.5272,3244],["Balmhorn",46.4247,7.6936,3698],["Doldenhorn",46.4661,7.7361,3638],
+["Blüemlisalp",46.4886,7.7697,3661],["Schilthorn",46.5583,7.8353,2970],["Niesen",46.6461,7.6511,2362],
+["Stockhorn",46.6939,7.5389,2190],["Männlichen",46.6117,7.9403,2343],["Faulhorn",46.6739,8.0164,2681],
+["Brienzer Rothorn",46.7867,8.0472,2350],["Jungfrau",46.5367,7.9625,4158],["Mönch",46.5586,7.9978,4107],
+["Eiger",46.5775,8.0053,3967],["Aletschhorn",46.4653,7.9936,4193],["Finsteraarhorn",46.5372,8.1261,4274],
+["Schreckhorn",46.5894,8.1181,4078],["Lauteraarhorn",46.5833,8.1275,4042],["Wetterhorn",46.6378,8.1156,3692],
+["Dammastock",46.6436,8.4208,3630],["Titlis",46.7722,8.4378,3238],["Pilatus",46.9786,8.2522,2128],
+["Stanserhorn",46.9294,8.3403,1898],["Rigi Kulm",47.0564,8.4853,1798],["Großer Mythen",47.0306,8.6814,1898],
+["Tödi",46.8114,8.9150,3614],["Glärnisch",46.9986,8.9983,2915],["Säntis",47.2494,9.3433,2502],
+["Hoher Kasten",47.2833,9.4867,1794],["Pfänder",47.5092,9.7847,1064],["Monte Tamaro",46.1036,8.8656,1962],
+["Monte Generoso",45.9311,9.0197,1701],["Rheinwaldhorn",46.4933,9.0397,3402],["Piz Badile",46.2967,9.5764,3308],
+["Monte Legnone",46.0931,9.4103,2609],["Resegone",45.8583,9.4722,1875],["Monte Disgrazia",46.2683,9.7489,3678],
+["Pizzo Coca",46.1139,10.0139,3050],["Piz Bernina",46.3825,9.9078,4049],["Piz Roseg",46.3897,9.8817,3937],
+["Piz Palü",46.3783,9.9589,3900],["Piz Corvatsch",46.4081,9.8161,3451],["Piz Julier",46.4822,9.7483,3380],
+["Piz Languard",46.5031,9.9544,3262],["Piz Kesch",46.6211,9.8733,3418],["Piz Linard",46.7997,10.0706,3411],
+["Piz Buin",46.8442,10.1186,3312],["Schesaplana",47.0539,9.7094,2964],["Ortler",46.5086,10.5444,3905],
+["Königspitze",46.4847,10.5667,3851],["Monte Cevedale",46.4478,10.6200,3769],["Adamello",46.1553,10.4961,3539],
+["Presanella",46.2211,10.6647,3558],["Cima Tosa",46.1675,10.8786,3173],["Monte Baldo",45.7336,10.8528,2218],
+["Weißkugel",46.7981,10.7272,3739],["Wildspitze",46.8853,10.8672,3768],["Similaun",46.7650,10.8819,3599],
+["Zuckerhütl",46.9644,11.1522,3507],["Serles",47.1136,11.3781,2717],["Hafelekarspitze",47.3122,11.3844,2334],
+["Birkkarspitze",47.4108,11.4375,2749],["Olperer",47.0558,11.6606,3476],["Hochfeiler",46.9725,11.7278,3509],
+["Hochgall",46.9239,12.1328,3436],["Zugspitze",47.4211,10.9853,2962],["Alpspitze",47.4125,11.0431,2628],
+["Hochvogel",47.3553,10.4389,2592],["Nebelhorn",47.4214,10.3417,2224],["Parseierspitze",47.1731,10.4786,3036],
+["Wendelstein",47.7036,12.0122,1838],["Ellmauer Halt",47.5700,12.3006,2344],["Großvenediger",47.1094,12.3464,3657],
+["Großglockner",47.0742,12.6947,3798],["Kitzsteinhorn",47.1953,12.6872,3203],["Hoher Sonnblick",47.0542,12.9575,3106],
+["Ankogel",47.0533,13.2458,3252],["Hochalmspitze",47.0158,13.3197,3360],["Watzmann",47.5547,12.9217,2713],
+["Hochkönig",47.4203,13.0628,2941],["Dachstein",47.4753,13.6064,2995],["Großer Priel",47.7178,14.0636,2515],
+["Ötscher",47.8631,15.2031,1893],["Rax (Heukuppe)",47.6906,15.6881,2007],["Schneeberg",47.7672,15.8069,2076],
+["Marmolada",46.4344,11.8508,3343],["Piz Boè",46.5094,11.8278,3152],["Langkofel",46.5264,11.7336,3181],
+["Sass Rigais",46.6089,11.7669,3025],["Peitlerkofel",46.6475,11.8108,2875],["Große Zinne",46.6186,12.3050,2999],
+["Antelao",46.4517,12.2625,3264],["Civetta",46.3803,12.0533,3220],["Tofana di Mezzo",46.5389,12.0658,3244],
+["Monte Pelmo",46.4297,12.1353,3168],["Monte Cristallo",46.5750,12.1994,3221],["Cimon della Pala",46.2819,11.8519,3184],
+["Jôf di Montasio",46.4353,13.4344,2753],["Monte Canin",46.3589,13.4403,2587],["Mangart",46.4411,13.6539,2679],
+["Triglav",46.3783,13.8364,2864]
+];
+
+(() => {
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), video = $('video');
+const R = 6371000, K = 0.13, D2R = Math.PI/180;
+const LS = {get(k,d){try{const v=localStorage.getItem('tz_'+k);return v?JSON.parse(v):d}catch(e){return d}}, set(k,v){try{localStorage.setItem('tz_'+k,JSON.stringify(v))}catch(e){}}};
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+// hoofdcamera van een gsm: ongeveer 26 mm-equivalent, ~64° over de lange zijde van de video
+const CAM_TAN = 0.63;
+
+const st = {
+  mode:'pano',                 // live | photo | pano
+  gps:null, gpsErr:null,       // {lat,lon,alt,acc}
+  obsSrc:'none', obsManual:null, obsPhoto:null, altOverride:null,
+  sensor:{heading:null, pitch:0, sx:0, sy:1, last:0, kind:null},
+  view:{heading:180, pitch:0},  // used in pano/photo and when no sensor
+  corr:LS.get('corr',0), pcorr:LS.get('pcorr',0), camK:LS.get('camk',1),
+  fov:52, fovUser:false, maxDist:120,
+  zoom:1,                      // live: digitale zoom op het camerabeeld
+  pz:{k:1, ux:.5, uy:.5},      // foto: zoom en middelpunt (als fractie van de foto)
+  showHidden:false, showSil:LS.get('sil',true), showSun:true, slant:LS.get('slant',true), baseY:null,
+  target:null, selected:null, aligning:false, alignPt:null, lastAlign:null,
+  photo:null,                  // {img, exif}
+  custom:LS.get('custom',[]), ai:LS.get('ai',[]),
+  osm:LS.get('osm',null), osmBusy:false, osmFail:0, osmMsg:false,
+  hits:[], cache:null, camOn:false
+};
+
+/* ---------- peaks ---------- */
+const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+function allPeaks(){
+  const base = PEAKS.map(p=>({name:p[0],lat:p[1],lon:p[2],alt:p[3],kind:'base'}));
+  const close = (a,b,f) => Math.abs(a.lat-b.lat)<0.004*f && Math.abs(a.lon-b.lon)<0.006*f;
+  const dup = q => base.some(b=>close(b,q,1) || (close(b,q,5) && norm(b.name)===norm(q.name)));
+  const cus = st.custom.map(p=>({...p,kind:'custom'}));
+  const ai = st.ai.filter(a=>!dup(a)).map(p=>({...p,kind:'ai'}));
+  const osm = st.osm ? st.osm.peaks.map(p=>({name:p[0],lat:p[1],lon:p[2],alt:p[3],kind:'osm'})).filter(q=>!dup(q)) : [];
+  return base.concat(cus, ai, osm);
+}
+let PEAKLIST = allPeaks();
+function refreshPeaks(){ PEAKLIST = allPeaks(); st.cache=null; }
+
+/* ---------- terrein (hoogtemodel) ---------- */
+// Terrarium-tegels van Mapzen/AWS: hoogte = R*256 + G + B/256 - 32768
+const DEM = {tiles:new Map(), pend:new Map(), want:'', ver:0, state:'idle'};
+const tkey = (z,x,y) => (z*4096+x)*4096+y;
+function tileXY(lat,lon,z){ const n=2**z, r=lat*D2R; return [(lon+180)/360*n, (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n]; }
+function fetchTile(z,x,y){
+  const k=tkey(z,x,y);
+  if (DEM.tiles.has(k)) return Promise.resolve(DEM.tiles.get(k));
+  if (DEM.pend.has(k)) return DEM.pend.get(k);
+  const p=new Promise(res=>{
+    const img=new Image(); img.crossOrigin='anonymous';
+    img.onload=()=>{
+      let e=null;
+      try{
+        const c=document.createElement('canvas'); c.width=c.height=256;
+        const g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0);
+        const d=g.getImageData(0,0,256,256).data; e=new Float32Array(65536);
+        for (let i=0;i<65536;i++) e[i]=d[i*4]*256+d[i*4+1]+d[i*4+2]/256-32768;
+        DEM.tiles.set(k,e);
+      }catch(err){ e=null; }
+      DEM.pend.delete(k); res(e);
+    };
+    img.onerror=()=>{ DEM.pend.delete(k); res(null); };
+    img.src=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+  });
+  DEM.pend.set(k,p); return p;
+}
+function elevZ(lat,lon,z){
+  const [tx,ty]=tileXY(lat,lon,z), x0=Math.floor(tx), y0=Math.floor(ty);
+  const t=DEM.tiles.get(tkey(z,x0,y0)); if (!t) return null;
+  const px=clamp((tx-x0)*256-.5,0,254.999), py=clamp((ty-y0)*256-.5,0,254.999);
+  const i=Math.floor(px), j=Math.floor(py), fx=px-i, fy=py-j, b=j*256+i;
+  return (t[b]*(1-fx)+t[b+1]*fx)*(1-fy)+(t[b+256]*(1-fx)+t[b+257]*fx)*fy;
+}
+function demAt(lat,lon){ for (const z of [12,10,8]){ const e=elevZ(lat,lon,z); if (e!=null) return e; } return null; }
+function ensureDem(o){
+  const want=[o.lat.toFixed(2),o.lon.toFixed(2),st.maxDist].join('|');
+  if (want===DEM.want) return; DEM.want=want;
+  const jobs=[];
+  const add=(z,rad)=>{
+    const dLat=rad/111320, dLon=rad/(111320*Math.cos(o.lat*D2R));
+    const [x1,y1]=tileXY(o.lat+dLat,o.lon-dLon,z), [x2,y2]=tileXY(o.lat-dLat,o.lon+dLon,z);
+    for (let x=Math.floor(x1);x<=Math.floor(x2);x++) for (let y=Math.floor(y1);y<=Math.floor(y2);y++) jobs.push(fetchTile(z,x,y));
+  };
+  add(12,400); add(10,24000); add(8,(st.maxDist+10)*1000);
+  DEM.state='loading';
+  Promise.all(jobs).then(r=>{
+    if (DEM.want!==want) return;
+    const ok=r.filter(Boolean).length;
+    DEM.state = ok===r.length ? 'ok' : ok ? 'part' : 'fail';
+    DEM.ver++; st.cache=null;
+    if (DEM.state!=='ok') setTimeout(()=>{ if (DEM.want===want) DEM.want=''; }, 30000); // later opnieuw proberen
+  });
+}
+
+/* ---------- toppen uit OpenStreetMap ---------- */
+const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+async function ensureOsm(o){
+  if (st.osmBusy || (st.osmFail && Date.now()-st.osmFail<60000)) return;
+  const r=Math.min(st.maxDist,150), c=st.osm;
+  if (c && geo(c,o.lat,o.lon).d/1000 + r <= c.r + 1) return;
+  st.osmBusy=true;
+  const R2=Math.min(160, r+25), dLat=R2/111.32, dLon=R2/(111.32*Math.cos(o.lat*D2R));
+  const bbox=[o.lat-dLat,o.lon-dLon,o.lat+dLat,o.lon+dLon].map(v=>v.toFixed(4)).join(',');
+  const q=`[out:csv(::lat,::lon,"name","ele";false)][timeout:90];node["natural"~"^(peak|volcano)$"]["name"]["ele"](${bbox})(if:number(t["ele"])>=300);out;`;
+  try{
+    let txt=null;
+    for (const url of OVERPASS){
+      try{
+        const ac=new AbortController(), tm=setTimeout(()=>ac.abort(),90000);
+        const res=await fetch(url,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ac.signal});
+        clearTimeout(tm);
+        if (res.ok){ txt=await res.text(); if (!/^\s*</.test(txt)) break; txt=null; }
+      }catch(e){}
+    }
+    if (txt==null) throw new Error('overpass');
+    const peaks=[];
+    for (const line of txt.split('\n')){
+      const f=line.split('\t'); if (f.length<4) continue;
+      const lat=+f[0], lon=+f[1], alt=Math.round(parseFloat(f[3])), name=f[2].split(/\s+\/\s+|;/)[0].trim().slice(0,40);
+      if (!name || !isFinite(lat) || !isFinite(lon) || !isFinite(alt) || alt<300 || alt>4900) continue;
+      peaks.push([name,+lat.toFixed(5),+lon.toFixed(5),alt]);
+    }
+    st.osm={lat:o.lat, lon:o.lon, r:R2, peaks}; LS.set('osm',st.osm); refreshPeaks();
+    if (!st.osmMsg){ st.osmMsg=true; toast(`${peaks.length} toppen uit OpenStreetMap geladen.`); }
+  }catch(e){ st.osmFail=Date.now(); }
+  finally{ st.osmBusy=false; }
+}
+
+/* ---------- observer ---------- */
+function peakAt(lat,lon){
+  for (const p of PEAKLIST){ if (Math.abs(p.lat-lat)<0.002 && Math.abs(p.lon-lon)<0.003) return p.alt; }
+  return null;
+}
+function observer(){
+  let o=null, given=null, trusted=false;
+  if (st.obsSrc==='manual' && st.obsManual){ o={lat:st.obsManual.lat, lon:st.obsManual.lon}; given=st.obsManual.alt; trusted=given!=null; }
+  else if (st.obsSrc==='photo' && st.obsPhoto){ o={lat:st.obsPhoto.lat, lon:st.obsPhoto.lon}; given=st.obsPhoto.alt; }
+  else if (st.obsSrc==='gps' && st.gps){ o={lat:st.gps.lat, lon:st.gps.lon}; given=st.gps.alt; }
+  if (!o) return null;
+  if (st.altOverride!=null){ o.alt=st.altOverride; o.altSrc='ingevuld'; }
+  else if (trusted){ o.alt=given; o.altSrc='top'; }
+  else {
+    const top=peakAt(o.lat,o.lon), ground=demAt(o.lat,o.lon);
+    if (top!=null){ o.alt=top; o.altSrc='top'; }
+    // GPS-hoogte is vaak tientallen meters fout; het terreinmodel is beter, behalve in een kabelbaan of toren
+    else if (ground!=null){ const up=given!=null && given>ground+40; o.alt=up?given:ground; o.altSrc=up?'GPS':'terrein'; }
+    else if (given!=null){ o.alt=given; o.altSrc='GPS'; }
+    else { o.alt=600; o.altSrc='geschat'; }
+  }
+  o.eye = o.alt + 1.7;
+  return o;
+}
+
+/* ---------- geometry ---------- */
+function geo(o,lat,lon){
+  const f1=o.lat*D2R, f2=lat*D2R, dl=(lon-o.lon)*D2R, df=f2-f1;
+  const a=Math.sin(df/2)**2+Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+  const d=2*R*Math.asin(Math.min(1,Math.sqrt(a)));
+  const brg=(Math.atan2(Math.sin(dl)*Math.cos(f2), Math.cos(f1)*Math.sin(f2)-Math.sin(f1)*Math.cos(f2)*Math.cos(dl))/D2R+360)%360;
+  return {d,brg};
+}
+const drop = d => d*d/(2*R)*(1-K);
+const angDiff = (a,b) => ((a-b+540)%360)-180;
+// magnetische declinatie, benadering voor de Alpen (WMM 2025: Genève ~2,6°, Innsbruck ~4,3°, Wenen ~5,6°)
+const declination = lon => 0.75 + 0.3*lon;
+
+// zonder terreinmodel: schat per richting de hoogste hoek die bergen maken (kegelmodel rond elke top)
+const SLOPE = 0.42, VALLEY = 700;
+function blockAngle(o, list, brg, maxAlong, skip){
+  let best=-90;
+  for (const q of list){
+    if (q===skip) continue;
+    const dB=angDiff(q.brg,brg)*D2R; if (Math.abs(dB)>1.2) continue;
+    const along=q.d*Math.cos(dB); if (along<150 || along>maxAlong) continue;
+    const r=Math.abs(q.d*Math.sin(dB)); const hh=q.alt-SLOPE*r;
+    if (hh<Math.min(VALLEY,o.eye+50)) continue;
+    const ang=Math.atan2(hh-o.eye-drop(along), along)/D2R;
+    if (ang>best) best=ang;
+  }
+  return best;
+}
+
+// met terreinmodel: straal per 0,25° en onthoud de hoogste helling tot op elke afstand
+function buildHorizon(o){
+  const maxD=(st.maxDist+10)*1000, ds=[]; for (let d=60; d<=maxD; d+=Math.max(40,d*0.006)) ds.push(d);
+  const D=Float32Array.from(ds), N=D.length, run=new Float32Array(1440*N), sil=new Float32Array(1440);
+  const mLat=1/111320, mLon=1/(111320*Math.cos(o.lat*D2R)), crests=new Array(1440);
+  for (let i=0;i<1440;i++){
+    const a=i/4*D2R, dx=Math.sin(a)*mLon, dy=Math.cos(a)*mLat, off=i*N;
+    let best=-1e9, rising=false, cand=null, pend=null; const cr=[];
+    for (let k=0;k<N;k++){
+      const d=D[k], lat=o.lat+d*dy, lon=o.lon+d*dx;
+      let e = d<22000 ? elevZ(lat,lon,10) : null; if (e==null) e=elevZ(lat,lon,8);
+      if (e!=null){
+        const t=(e-o.eye-drop(d))/d;
+        if (t>best){
+          // terrein weer zichtbaar: was de vorige kam een echte rand (grote sprong in afstand)?
+          if (pend){ if (d>pend[1]*1.12+300) cr.push(Math.atan(pend[0])/D2R, pend[1]); pend=null; }
+          best=t; rising=true; cand=[t,d];
+        } else if (rising){ rising=false; pend=cand; }
+      }
+      run[off+k]=best;
+    }
+    if (pend) cr.push(Math.atan(pend[0])/D2R, pend[1]);
+    else if (rising && cand) cr.push(Math.atan(cand[0])/D2R, cand[1]);
+    crests[i]=cr;
+    sil[i] = best>-1e8 ? Math.atan(best)/D2R : -90;
+  }
+  // elke kam verbinden met de best passende kam op de volgende straal
+  const links=new Array(1440);
+  for (let i=0;i<1440;i++){
+    const a=crests[i], b=crests[(i+1)%1440], l=new Int16Array(a.length/2).fill(-1);
+    for (let j=0;j<a.length;j+=2){
+      let bestJ=-1, bestE=1e9;
+      for (let m=0;m<b.length;m+=2){
+        const er=Math.abs(b[m+1]-a[j+1])/a[j+1]; if (er>0.15 || Math.abs(b[m]-a[j])>0.8) continue;
+        if (er<bestE){ bestE=er; bestJ=m; }
+      }
+      l[j/2]=bestJ;
+    }
+    links[i]=l;
+  }
+  return {D,N,run,sil,crests,links};
+}
+function blockedTan(hz,brg,d){
+  const lim=d-Math.max(250,d*0.03); if (lim<hz.D[0]) return -1e9;
+  let lo=0, hi=hz.N-1; while (lo<hi){ const m=(lo+hi+1)>>1; if (hz.D[m]<=lim) lo=m; else hi=m-1; }
+  const i=Math.round(brg*4);
+  // mildste van drie naburige stralen, zodat een top op een graat niet onterecht verborgen raakt
+  return Math.min(hz.run[((i+1439)%1440)*hz.N+lo], hz.run[(i%1440)*hz.N+lo], hz.run[((i+1)%1440)*hz.N+lo]);
+}
+
+function buildCache(o){
+  const key=[o.lat.toFixed(5),o.lon.toFixed(5),Math.round(o.eye),st.maxDist,PEAKLIST.length,DEM.ver].join('|');
+  const c=st.cache;
+  if (c && c.key===key) return c;
+  let hz=null;
+  if (c && c.hz && c.demVer===DEM.ver && c.maxDist===st.maxDist && geo(c.o,o.lat,o.lon).d<80 && Math.abs(c.o.eye-o.eye)<15) hz=c.hz;
+  else if (DEM.state==='ok' || DEM.state==='part' || DEM.ver>0) hz=buildHorizon(o);
+  if (hz && !hz.sil.some(a=>a>-90)) hz=null; // geen terrein beschikbaar
+
+  const near=[];
+  for (const p of PEAKLIST){
+    const g=geo(o,p.lat,p.lon); if (g.d>(st.maxDist+40)*1000) continue;
+    near.push({...p, d:g.d, brg:g.brg, elev:Math.atan2(p.alt-o.eye-drop(g.d), g.d)/D2R});
+  }
+  const cone = hz ? null : near.filter(p=>p.kind!=='osm');
+  const list=[];
+  for (const p of near){
+    if (p.d<250 || p.d>st.maxDist*1000) continue;
+    if (hz){ const t=(p.alt-o.eye-drop(p.d))/p.d; p.hidden = t < blockedTan(hz,p.brg,p.d) - 0.003; }
+    else p.hidden = blockAngle(o, cone, p.brg, p.d-600, p) > p.elev + 0.2;
+    p.score = (p.hidden?-1e5:0) + p.alt + (p.kind==='base'?500:0) + p.elev*40;
+    list.push(p);
+  }
+  list.sort((a,b)=>b.score-a.score);
+  let sil=hz ? hz.sil : null;
+  if (!sil){ sil=new Float32Array(1440); for (let i=0;i<1440;i++) sil[i]=blockAngle(o, cone, i/4, (st.maxDist+40)*1000, null); }
+  st.cache={key, o:{lat:o.lat,lon:o.lon,eye:o.eye}, hz, demVer:DEM.ver, maxDist:st.maxDist, list, sil, terrain:!!hz};
+  return st.cache;
+}
+
+/* ---------- sun ---------- */
+function sunPos(date, lat, lon){
+  const d=date.getTime()/86400000-10957.5;
+  const g=(357.529+0.98560028*d)*D2R, q=280.459+0.98564736*d;
+  const L=(q+1.915*Math.sin(g)+0.020*Math.sin(2*g))*D2R, e=(23.439-0.00000036*d)*D2R;
+  const ra=Math.atan2(Math.cos(e)*Math.sin(L),Math.cos(L)), dec=Math.asin(Math.sin(e)*Math.sin(L));
+  const gmst=((18.697374558+24.06570982441908*d)%24+24)%24;
+  const H=(gmst*15+lon)*D2R-ra, f=lat*D2R;
+  const alt=Math.asin(Math.sin(f)*Math.sin(dec)+Math.cos(f)*Math.cos(dec)*Math.cos(H));
+  const az=Math.atan2(-Math.sin(H), Math.tan(dec)*Math.cos(f)-Math.sin(f)*Math.cos(H));
+  return {az:(az/D2R+360)%360, alt:alt/D2R + (alt>-0.02? 0.5:0)};
+}
+
+/* ---------- current view ---------- */
+function sensorLive(){ return st.mode==='live' && st.sensor.heading!=null && performance.now()-st.sensor.last<2500; }
+function currentView(){
+  if (sensorLive()){
+    const o=observer(), decl=declination(o ? o.lon : 8);
+    return {heading:((st.sensor.heading+decl+st.corr)%360+360)%360, pitch:st.sensor.pitch+st.pcorr};
+  }
+  return {heading:st.view.heading, pitch:st.view.pitch};
+}
+
+/* ---------- projectie ---------- */
+// panorama: cilindrisch (graden lineair). camera en foto: perspectief zoals een echte lens.
+function makeProj(rect, v){
+  const cx=rect.x+rect.w/2, cy=rect.y+rect.h/2;
+  if (st.mode==='pano'){
+    const k=rect.w/st.fov;
+    return {degPx:1/k,
+      p:(az,el)=>[cx+angDiff(az,v.heading)*k, cy-(el-v.pitch)*k],
+      u:(x,y)=>({az:(v.heading+(x-cx)/k+720)%360, el:v.pitch-(y-cy)/k}),
+      xAz:az=>cx+angDiff(az,v.heading)*k};
+  }
+  const f=rect.w/2/Math.tan(st.fov/2*D2R), cp=Math.cos(v.pitch*D2R), sp=Math.sin(v.pitch*D2R);
+  return {degPx:1/(f*D2R),
+    p:(az,el)=>{
+      const da=angDiff(az,v.heading)*D2R, ce=Math.cos(el*D2R);
+      const x=ce*Math.sin(da), y=ce*Math.cos(da), z=Math.sin(el*D2R);
+      const fw=y*cp+z*sp, up=-y*sp+z*cp; if (fw<0.05) return null;
+      return [cx+f*x/fw, cy-f*up/fw];
+    },
+    u:(x,y)=>{
+      const rx=(x-cx)/f, ru=-(y-cy)/f, wy=cp-ru*sp, wz=sp+ru*cp;
+      return {az:(v.heading+Math.atan2(rx,wy)/D2R+720)%360, el:Math.atan2(wz,Math.hypot(rx,wy))/D2R};
+    },
+    xAz:az=>{ const da=angDiff(az,v.heading); return Math.abs(da)<80 ? cx+f*Math.tan(da*D2R) : null; }};
+}
+
+/* ---------- sensors ---------- */
+function onOrient(e, absolute){
+  let h=null;
+  if (e.beta==null || e.gamma==null) return;
+  const b=e.beta*D2R, g=e.gamma*D2R;
+  // kijkrichting van de achtercamera (-z van het toestel): omhoog-component hangt niet af van alpha
+  const U=-Math.cos(b)*Math.cos(g), p=Math.asin(clamp(U,-1,1))/D2R;
+  if (e.webkitCompassHeading!=null && e.webkitCompassHeading>=0){
+    h=e.webkitCompassHeading; st.sensor.kind='ios';
+  } else if ((absolute||e.absolute) && e.alpha!=null){
+    const a=e.alpha*D2R, cA=Math.cos(a),sA=Math.sin(a),cB=Math.cos(b),sB=Math.sin(b),cG=Math.cos(g),sG=Math.sin(g);
+    const E=-(cA*sG+sA*sB*cG), N=-(sA*sG-cA*sB*cG);
+    if (Math.hypot(E,N)<0.2) return; // gsm plat: richting onbetrouwbaar
+    h=(Math.atan2(E,N)/D2R+360)%360; st.sensor.kind='android';
+  } else return;
+  const s=st.sensor, r=h*D2R, k=s.heading==null?1:0.18;
+  s.sx=s.sx*(1-k)+Math.sin(r)*k; s.sy=s.sy*(1-k)+Math.cos(r)*k;
+  s.heading=(Math.atan2(s.sx,s.sy)/D2R+360)%360;
+  s.pitch = k===1 ? p : s.pitch*(1-k)+p*k;
+  s.last=performance.now();
+}
+let sensorsBound=false;
+function bindSensors(){
+  if (sensorsBound) return; sensorsBound=true;
+  if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', e=>onOrient(e,true));
+  window.addEventListener('deviceorientation', e=>onOrient(e,false));
+}
+function askMotionPermission(){ // moet binnen de tik gebeuren (iPhone)
+  try{
+    if (typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+      return DeviceOrientationEvent.requestPermission().then(r=>{ if(r==='granted') bindSensors(); else st.sensor.kind='denied'; }).catch(()=>{ st.sensor.kind='denied'; });
+    }
+  }catch(e){}
+  bindSensors(); return Promise.resolve();
+}
+let gpsWatch=null;
+function startGPS(){
+  if (gpsWatch!=null) return;
+  if (!navigator.geolocation){ st.gpsErr='Deze browser geeft geen locatie door.'; return; }
+  gpsWatch = navigator.geolocation.watchPosition(p=>{
+    st.gps={lat:p.coords.latitude, lon:p.coords.longitude, alt:p.coords.altitude, acc:p.coords.accuracy}; st.gpsErr=null;
+    if (st.obsSrc==='none') st.obsSrc='gps';
+  }, err=>{
+    st.gpsErr = err.code===1 ? 'Locatie geweigerd' : 'Geen GPS-fix';
+    if (err.code===1) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch=null; toast('Locatie is geweigerd. Zet in Instellingen › Privacy › Locatievoorzieningen › Safari-websites op "Bij gebruik", of kies een standpunt via Zoeken.', 9000); }
+  }, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
+}
+async function startCamera(){
+  if (st.camOn) return true;
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('De camera werkt alleen via https (of localhost). Open de app via een https-adres, bijvoorbeeld GitHub Pages, niet als los bestand.', 10000);
+    return false;
+  }
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+    video.srcObject=s; await video.play(); st.camOn=true; return true;
+  }catch(err){
+    toast('De camera start niet. Controleer in Instellingen › Safari › Camera dat toegang is toegestaan, of gebruik Foto of Panorama.', 8000);
+    return false;
+  }
+}
+function stopCamera(){ const s=video.srcObject; if (s) s.getTracks().forEach(t=>t.stop()); video.srcObject=null; st.camOn=false; }
+
+/* ---------- modes ---------- */
+function setMode(m){
+  st.mode=m; $('detail').style.display='none';
+  video.style.display = m==='live' ? 'block':'none';
+  if (m!=='live'){ stopCamera(); st.zoom=1; video.style.transform=''; }
+  ['tLive','tPano'].forEach(id=>$(id).classList.remove('active')); $('tPhoto').classList.remove('active');
+  ({live:$('tLive'),pano:$('tPano'),photo:$('tPhoto')})[m].classList.add('active');
+  if (m==='pano' && !st.fovUser) setFov(defaultFov());
+}
+function defaultFov(){ return innerWidth>innerHeight ? 68 : 52; }
+function setFov(v){ st.fov=clamp(v,2,120); syncFovUi(); }
+// beeldhoek van het camerabeeld zoals het op het scherm staat (object-fit: cover snijdt een deel weg)
+function liveBaseFov(){
+  const vw=video.videoWidth, vh=video.videoHeight, w=cv.clientWidth, h=cv.clientHeight;
+  let t;
+  if (vw && vh && w && h){ const tl=CAM_TAN*st.camK, tw = vw>=vh ? tl : tl*vw/vh, k=Math.max(w/vw,h/vh); t=tw*w/(vw*k); }
+  else t=Math.tan((w>h?60:36)/2*D2R)*st.camK;
+  return 2*Math.atan(t)/D2R;
+}
+function syncFovUi(){
+  const base = st.mode==='live' ? liveBaseFov() : st.fov;
+  $('fov').value=Math.round(clamp(base,5,120)); $('fovV').textContent=Math.round(base)+'°'+(st.mode==='live'&&st.zoom>1.01?` (zoom ${st.zoom.toFixed(1)}×)`:'');
+}
+
+async function goLive(){
+  $('intro').style.display='none';
+  const perm = askMotionPermission();  // eerst, binnen de tik
+  setMode('live'); startGPS(); if (st.obsSrc==='none'||st.obsSrc==='photo') st.obsSrc = st.obsManual? 'manual':'gps';
+  await perm; await startCamera();
+  setTimeout(()=>{ if (st.mode==='live' && !sensorLive()) toast('Geen kompas ontvangen. Tik opnieuw op Live en sta Beweging en richting toe, of sleep over het beeld.', 7000); }, 3000);
+}
+function goPano(){
+  $('intro').style.display='none'; setMode('pano'); startGPS();
+  if (st.obsSrc==='none'||st.obsSrc==='photo'){ st.obsSrc='gps'; }
+  setTimeout(()=>{ if (!observer()){ setManual({name:'Gornergrat',lat:45.9833,lon:7.7847,alt:3089}); toast('Nog geen locatie. Je kijkt nu vanaf de Gornergrat. Kies een ander standpunt via Zoeken.', 6000);} }, st.gps?0:2500);
+}
+function setManual(p){ st.obsManual={lat:p.lat,lon:p.lon,alt:p.alt??null,name:p.name}; st.obsSrc='manual'; st.altOverride=null; $('alt').value=''; st.target=null; }
+
+/* ---------- photo + EXIF ---------- */
+function readExif(buf){
+  const v=new DataView(buf); if (v.byteLength<4 || v.getUint16(0)!==0xFFD8) return null;
+  let o=2;
+  while (o+4<v.byteLength){
+    const m=v.getUint16(o), len=v.getUint16(o+2);
+    if (m===0xFFE1 && v.getUint32(o+4)===0x45786966) return parseTiff(v,o+10);
+    if ((m&0xFF00)!==0xFF00) break; o+=2+len;
+  }
+  return null;
+}
+function parseTiff(v,t){
+  const le=v.getUint16(t)===0x4949, u16=p=>v.getUint16(p,le), u32=p=>v.getUint32(p,le), s32=p=>v.getInt32(p,le);
+  const sizes={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
+  function ifd(p){
+    const out={}; if (p<0||p+2>v.byteLength) return out; const n=u16(p);
+    for (let i=0;i<n;i++){
+      const e=p+2+i*12; if (e+12>v.byteLength) break;
+      const tag=u16(e), type=u16(e+2), cnt=u32(e+4), sz=(sizes[type]||1)*cnt;
+      const vp = sz<=4 ? e+8 : t+u32(e+8);
+      const val=[];
+      for (let j=0;j<Math.min(cnt,64);j++){
+        if (type===3) val.push(u16(vp+j*2)); else if (type===4) val.push(u32(vp+j*4));
+        else if (type===5) val.push(u32(vp+j*8)/(u32(vp+j*8+4)||1)); else if (type===10) val.push(s32(vp+j*8)/(s32(vp+j*8+4)||1));
+        else if (type===2) val.push(String.fromCharCode(v.getUint8(vp+j))); else val.push(v.getUint8(vp+j));
+      }
+      out[tag]= type===2 ? val.join('').replace(/\0.*$/,'') : val;
+    }
+    return out;
+  }
+  try{
+    const i0=ifd(t+u32(t+4)), ex=i0[0x8769]?ifd(t+i0[0x8769][0]):{}, gp=i0[0x8825]?ifd(t+i0[0x8825][0]):{};
+    const r={};
+    if (gp[2]&&gp[4]){
+      const dms=a=>a[0]+a[1]/60+a[2]/3600;
+      r.lat=dms(gp[2])*(gp[1]==='S'?-1:1); r.lon=dms(gp[4])*(gp[3]==='W'?-1:1);
+      if (gp[6]) r.alt=gp[6][0]*(gp[5]&&gp[5][0]===1?-1:1);
+      if (gp[0x11]){ r.dir=gp[0x11][0]; if (gp[0x10]==='M') r.dir+=declination(r.lon); }
+    }
+    if (ex[0xA405]&&ex[0xA405][0]) r.f35=ex[0xA405][0];
+    if (ex[0x9003]) r.date=ex[0x9003];
+    return r;
+  }catch(e){ return null; }
+}
+async function loadPhoto(file){
+  if (!file) return;
+  $('intro').style.display='none';
+  const buf=await file.arrayBuffer(); const ex=readExif(buf)||{};
+  const url=URL.createObjectURL(file); const img=new Image();
+  img.onload=()=>{
+    st.photo={img, exif:ex}; setMode('photo'); st.pz={k:1,ux:.5,uy:.5};
+    const W=img.naturalWidth, H=img.naturalHeight;
+    if (ex.f35){ const th=43.27/(2*ex.f35); setFov(2*Math.atan(th*W/Math.hypot(W,H))/D2R); }
+    else setFov(W>H?65:50);
+    st.view.pitch=0; st.lastAlign=null;
+    const msg=[];
+    if (ex.lat!=null){ st.obsPhoto={lat:ex.lat,lon:ex.lon,alt:ex.alt??null}; st.obsSrc='photo'; msg.push('Locatie uit de foto gehaald.'); }
+    else { msg.push('Geen locatie in de foto.'); if (!observer()){ startGPS(); if (!st.gps) msg.push('Kies waar je stond via Zoeken.'); else st.obsSrc='gps'; } }
+    if (ex.dir!=null){ st.view.heading=(ex.dir+360)%360; msg.push('Richting ook.'); }
+    else { msg.push('Geen richting bewaard: sleep het beeld, of tik ◎ en kies een top die je herkent.'); }
+    toast(msg.join(' '), 8000);
+  };
+  img.onerror=()=>toast('Deze foto kan niet geopend worden. Probeer een JPG.');
+  img.src=url;
+}
+$('filePick').addEventListener('change', e=>{ loadPhoto(e.target.files[0]); e.target.value=''; });
+$('filePick2').addEventListener('change', e=>{ loadPhoto(e.target.files[0]); e.target.value=''; });
+
+/* ---------- drawing ---------- */
+function resize(){ const dpr=devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; if(!st.fovUser && st.mode==='pano') setFov(defaultFov()); }
+addEventListener('resize', resize);
+
+const DIRS=['N','NNO','NO','ONO','O','OZO','ZO','ZZO','Z','ZZW','ZW','WZW','W','WNW','NW','NNW'];
+const dirName = h => DIRS[Math.round(h/22.5)%16];
+
+function viewRect(w,h){
+  if (st.mode==='photo' && st.photo){
+    const iw=st.photo.img.naturalWidth, ih=st.photo.img.naturalHeight, s=Math.min(w/iw,h/ih)*st.pz.k, rw=iw*s, rh=ih*s;
+    if (st.pz.k<=1) return {x:(w-rw)/2, y:(h-rh)/2, w:rw, h:rh};
+    return {x:w/2-st.pz.ux*rw, y:h/2-st.pz.uy*rh, w:rw, h:rh};
+  }
+  return {x:0,y:0,w,h};
+}
+function silAt(sil,az){
+  const b=(az%360+360)%360*4, i=Math.floor(b)%1440, j=(i+1)%1440, f=b-Math.floor(b);
+  const a=sil[i]*(1-f)+sil[j]*f; return a<-60 ? -2 : a;
+}
+// bergkammen zoals PeakFinder: dichtbij fel en dik, veraf dun en vaag
+function drawRidges(c, hz, P, v, half, s){
+  const i0=Math.floor((v.heading-half)*4), i1=Math.ceil((v.heading+half)*4);
+  const bands=[[8000,'rgba(255,255,255,.85)',1.6],[30000,'rgba(255,255,255,.6)',1.2],[1e9,'rgba(255,255,255,.38)',1]];
+  const paths=bands.map(()=>new Path2D());
+  for (let ii=i0; ii<i1; ii++){
+    const i=((ii%1440)+1440)%1440, a=hz.crests[i], b=hz.crests[(i+1)%1440], l=hz.links[i];
+    for (let j=0;j<a.length;j+=2){
+      const m=l[j/2]; if (m<0) continue;
+      const p1=P.p(ii/4,a[j]), p2=P.p((ii+1)/4,b[m]); if (!p1||!p2) continue;
+      const k=a[j+1]<bands[0][0]?0:a[j+1]<bands[1][0]?1:2;
+      paths[k].moveTo(p1[0],p1[1]); paths[k].lineTo(p2[0],p2[1]);
+    }
+  }
+  c.lineCap='round';
+  for (let k=2;k>=0;k--){ c.strokeStyle=bands[k][1]; c.lineWidth=bands[k][2]*s; c.stroke(paths[k]); }
+  c.lineCap='butt';
+}
+// scene tekenen in willekeurige resolutie (scherm of export)
+function drawScene(c, w, h, s, opt){
+  const o=observer(), v=currentView(), rect=opt.rect, P=makeProj(rect,v);
+  const hits=[];
+  if (!o) return hits;
+  const cache=buildCache(o);
+  const half=st.fov/2+3, step=Math.max(0.01, P.degPx*3*s);
+  const polyline=(fn)=>{ let started=false; const pts=[];
+    for (let a=v.heading-half; a<=v.heading+half+step; a+=step){ const q=P.p(a,fn(a)); if (!q){ started=false; continue; } started ? c.lineTo(q[0],q[1]) : c.moveTo(q[0],q[1]); started=true; pts.push(q); }
+    return pts; };
+
+  // silhouet
+  if (st.mode==='pano' || st.showSil){
+    c.save(); c.beginPath(); c.rect(rect.x,rect.y,rect.w,rect.h); c.clip();
+    c.beginPath(); const pts=polyline(a=>silAt(cache.sil,a));
+    if (st.mode==='pano' && pts.length){
+      c.lineTo(pts[pts.length-1][0], rect.y+rect.h); c.lineTo(pts[0][0], rect.y+rect.h); c.closePath();
+      const rock=getComputedStyle(document.documentElement).getPropertyValue('--rock').trim()||'#5f7280';
+      c.fillStyle=rock; c.fill();
+    }
+    c.strokeStyle='rgba(255,255,255,.9)'; c.lineWidth=2*s; c.stroke();
+    if (cache.hz) drawRidges(c, cache.hz, P, v, half, s);
+    c.restore();
+  }
+  // horizon
+  c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=1*s; c.setLineDash([4*s,6*s]);
+  c.beginPath(); polyline(()=>0); c.stroke(); c.setLineDash([]);
+
+  // zon
+  if (st.showSun){
+    const now=new Date(), day=new Date(now); c.fillStyle='rgba(255,196,0,.85)';
+    c.font=`500 ${11*s}px Barlow, sans-serif`;
+    for (let hr=4; hr<=22; hr++){
+      day.setHours(hr,0,0,0); const sp=sunPos(day,o.lat,o.lon); if (sp.alt<-3) continue;
+      if (Math.abs(angDiff(sp.az,v.heading))>half) continue;
+      const q=P.p(sp.az,sp.alt); if (!q) continue;
+      c.beginPath(); c.arc(q[0],q[1],2.5*s,0,7); c.fill(); c.fillText(hr+'u',q[0]+5*s,q[1]-4*s);
+    }
+    const sp=sunPos(now,o.lat,o.lon), q=sp.alt>-2 && Math.abs(angDiff(sp.az,v.heading))<half ? P.p(sp.az,sp.alt) : null;
+    if (q){
+      const r=Math.max(9*s, 0.26/P.degPx);
+      c.strokeStyle='#FFC400'; c.lineWidth=3*s; c.beginPath(); c.arc(q[0],q[1],r,0,7); c.stroke();
+      c.fillStyle='#FFC400'; c.font=`600 ${13*s}px "Barlow Condensed", sans-serif`; c.fillText('zon nu', q[0]+r+4*s, q[1]+4*s);
+    }
+  }
+
+  // toppen: de lijst is al gesorteerd (zichtbaar, bekend, hoog, dichtbij)
+  const isT = p => st.target && p.name===st.target.name && p.lat===st.target.lat;
+  let vis=[];
+  for (const p of cache.list){
+    if (Math.abs(angDiff(p.brg,v.heading))>st.fov/2+1) continue;
+    if (p.hidden && !isT(p) && (!st.showHidden || p.kind==='osm')) continue;
+    vis.push(p); if (vis.length>=150) break;
+  }
+  const tp=cache.list.find(isT); if (tp && vis.includes(tp)) vis=[tp].concat(vis.filter(p=>p!==tp));
+  if (st.slant){
+    // PeakFinder-stijl: schuine witte namen op één lijn boven de bergen, dunne lijn naar de top
+    const A=60*D2R, cA=Math.cos(A), sA=Math.sin(A), gap=20*s, placed=[];
+    for (const p of vis){
+      const q=P.p(p.brg,p.elev); if (!q) continue;
+      const x=q[0], y=q[1]; if (x<rect.x+6*s || x>rect.x+rect.w-6*s) continue;
+      if (placed.some(r=>Math.abs(r.x-x)<gap)) continue;
+      placed.push({p,x,y});
+    }
+    const room=130*s, lo=opt.labelTop+room, hi=Math.max(lo, (opt.bandY||h)-60*s);
+    let base=clamp(Math.min(...placed.map(r=>r.y), hi+30*s)-30*s, lo, hi);
+    if (opt.ui){ st.baseY = st.baseY==null || Math.abs(st.baseY-base)>200 ? base : st.baseY+(base-st.baseY)*0.15; base=st.baseY; }
+    const f1=`600 ${17*s}px "Barlow Condensed", sans-serif`, f2=`500 ${12*s}px Barlow, sans-serif`;
+    c.lineJoin='round';
+    for (const r of placed){
+      const {p,x,y}=r, t=isT(p), col=t?'#FFD200':p.kind==='ai'||p.kind==='custom'?'#cfe8ff':'#ffffff';
+      const by=Math.min(base, y-14*s);
+      c.globalAlpha=p.hidden?0.45:1;
+      c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=3*s; c.beginPath(); c.moveTo(x,by); c.lineTo(x,y-4*s); c.stroke();
+      c.strokeStyle=col; c.lineWidth=(t?2:1.2)*s; if (p.hidden) c.setLineDash([3*s,3*s]);
+      c.beginPath(); c.moveTo(x,by); c.lineTo(x,y-4*s); c.stroke(); c.setLineDash([]);
+      c.fillStyle=col; c.beginPath(); c.arc(x,y,(t?4:2.8)*s,0,7); c.fill();
+      const sub=` ${p.alt} m · ${(p.d/1000).toFixed(p.d<10000?1:0)} km`;
+      c.save(); c.translate(x+3*s, by-4*s); c.rotate(-A);
+      c.font=f1; const w1=c.measureText(p.name).width; c.font=f2; const w2=c.measureText(sub).width;
+      c.strokeStyle='rgba(0,0,0,.6)'; c.lineWidth=3.5*s;
+      c.font=f1; c.strokeText(p.name,0,5*s); c.fillStyle=col; c.fillText(p.name,0,5*s);
+      c.font=f2; c.strokeText(sub,w1,5*s); c.globalAlpha*=0.85; c.fillText(sub,w1,5*s);
+      c.restore(); c.globalAlpha=1;
+      hits.push({rot:true, x:(x+3*s)/s, y:(by-4*s)/s, len:(w1+w2)/s, cA, sA, p});
+    }
+  } else {
+  const rows=[], rowH=40*s, top=opt.labelTop, maxRows=Math.max(3,Math.floor(opt.labelH*0.55/rowH));
+  const f1=`600 ${16*s}px "Barlow Condensed", sans-serif`, f2=`500 ${12*s}px Barlow, sans-serif`;
+  for (const p of vis){
+    const q=P.p(p.brg,p.elev); if (!q) continue;
+    const x=q[0], y=q[1]; if (x<rect.x-4*s || x>rect.x+rect.w+4*s) continue;
+    const sub=`${p.alt} m · ${(p.d/1000).toFixed(p.d<10000?1:0)} km`;
+    if (!p._w || p._w[0]!==s){ c.font=f1; const w1=c.measureText(p.name).width; c.font=f2; p._w=[s,Math.max(w1,c.measureText(sub).width)]; }
+    const bw=p._w[1]+14*s, bh=34*s, lo=Math.max(rect.x,0)+4*s, hi=Math.min(rect.x+rect.w,w)-bw-4*s, bx=Math.max(lo, Math.min(hi, x-bw/2));
+    let row=0; while (rows[row] && rows[row].some(r=>bx<r[1]+4*s && bx+bw>r[0]-4*s)) row++;
+    if (row>=maxRows) continue;
+    (rows[row]=rows[row]||[]).push([bx,bx+bw]);
+    const by=top+row*rowH;
+    const col = p.kind==='ai'||p.kind==='custom' ? '#ffffff' : '#FFD200';
+    c.globalAlpha = p.hidden ? 0.5 : 1;
+    c.strokeStyle=col; c.lineWidth=1.5*s; if (p.hidden) c.setLineDash([3*s,4*s]);
+    c.beginPath(); c.moveTo(x,by+bh); c.lineTo(x,Math.max(by+bh,y)); c.stroke(); c.setLineDash([]);
+    c.fillStyle=col; c.beginPath(); c.arc(x,Math.max(by+bh,y),3.5*s,0,7); c.fill();
+    c.fillRect(bx,by,bw,bh);
+    if (isT(p)){ c.strokeStyle='#ff4d4d'; c.lineWidth=3*s; c.strokeRect(bx-2*s,by-2*s,bw+4*s,bh+4*s); }
+    c.fillStyle='#1a1a1a'; c.font=f1; c.fillText(p.name,bx+7*s,by+15*s); c.font=f2; c.fillText(sub,bx+7*s,by+29*s);
+    c.globalAlpha=1;
+    hits.push({x:bx/s,y:by/s,w:bw/s,h:bh/s,p});
+  }
+  }
+
+  // doel buiten beeld: pijl
+  if (st.target && opt.ui){
+    const g=geo(o,st.target.lat,st.target.lon), dx=angDiff(g.brg,v.heading), cy=h/2;
+    if (Math.abs(dx)>st.fov/2-2){
+      const right=dx>0, ax=right? w-70*s : 20*s, ay=cy;
+      c.fillStyle='rgba(20,28,34,.85)'; c.fillRect(ax-8*s, ay-26*s, 60*s, 52*s);
+      c.fillStyle='#FFD200'; c.beginPath();
+      if (right){ c.moveTo(ax+30*s,ay); c.lineTo(ax+8*s,ay-14*s); c.lineTo(ax+8*s,ay+14*s);} else { c.moveTo(ax,ay); c.lineTo(ax+22*s,ay-14*s); c.lineTo(ax+22*s,ay+14*s); }
+      c.fill(); c.font=`600 ${13*s}px "Barlow Condensed", sans-serif`; c.fillText(Math.abs(Math.round(dx))+'°', ax+(right?0:8*s), ay+22*s);
+    }
+  }
+  // kompasband
+  if (opt.ui){
+    const by=opt.bandY; c.fillStyle='rgba(255,255,255,.85)'; c.strokeStyle='rgba(255,255,255,.7)';
+    c.font=`600 ${12*s}px "Barlow Condensed", sans-serif`; c.textAlign='center';
+    const stepDeg = st.fov>60?15:st.fov>25?5:st.fov>8?1:0.5;
+    const start=Math.ceil((v.heading-st.fov/2)/stepDeg)*stepDeg;
+    for (let a=start; a<=v.heading+st.fov/2; a+=stepDeg){
+      const x=P.xAz((a+360)%360); if (x==null) continue;
+      const n=((a%360)+360)%360, major=n%45===0;
+      c.beginPath(); c.moveTo(x,by); c.lineTo(x,by-(major?10:5)*s); c.stroke();
+      c.fillText(major? dirName(n) : (n%(stepDeg*3)===0? n+'°':''), x, by-13*s);
+    }
+    c.textAlign='left';
+  }
+  return hits;
+}
+
+let lastZoom=1;
+function frame(){
+  const w=cv.clientWidth, h=cv.clientHeight, dpr=devicePixelRatio||1;
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  if (st.mode==='live'){
+    st.fov=liveBaseFov()/st.zoom;
+    if (st.zoom!==lastZoom){ lastZoom=st.zoom; video.style.transform = st.zoom>1.001 ? `scale(${st.zoom})` : ''; }
+  }
+  const o=observer(); if (o){ ensureDem(o); ensureOsm(o); }
+  const rect=viewRect(w,h);
+  if (st.mode==='photo' && st.photo){ ctx.fillStyle='#0e1418'; ctx.fillRect(0,0,w,h); ctx.drawImage(st.photo.img, rect.x,rect.y,rect.w,rect.h); }
+  const barBottom=document.querySelector('.bar.top').getBoundingClientRect().bottom;
+  const labelTop=Math.max(rect.y+8, barBottom+4), bandY=Math.min(rect.y+rect.h-8, h-80);
+  st.hits = drawScene(ctx, w, h, 1, {rect, labelTop, labelH:Math.max(100, bandY-labelTop), bandY, ui:true});
+  if (st.aligning && st.alignPt){ ctx.strokeStyle='#ff4d4d'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(st.alignPt.x,st.alignPt.y,14,0,7); ctx.stroke(); }
+  updateTop();
+  requestAnimationFrame(frame);
+}
+
+let chipsHtml='';
+function updateTop(){
+  const o=observer(), v=currentView();
+  $('hdg').textContent = `${Math.round(v.heading)}° ${dirName(v.heading)}`;
+  const chips=[];
+  if (st.obsSrc==='gps' && st.gps) chips.push(['ok',`GPS ±${Math.round(st.gps.acc)} m`]);
+  else if (st.obsSrc==='manual' && st.obsManual) chips.push(['ok',esc(st.obsManual.name||'Eigen standpunt')]);
+  else if (st.obsSrc==='photo' && st.obsPhoto) chips.push(['ok','Locatie uit foto']);
+  else chips.push(['warn', st.gpsErr || 'Wachten op locatie']);
+  if (o) chips.push([o.altSrc==='geschat'?'warn':'', `${Math.round(o.alt)} m`]);
+  if (o) chips.push(DEM.state==='loading' ? ['warn','Terrein laden…'] : st.cache&&st.cache.terrain ? ['ok','Terrein'] : ['warn','Geen terrein']);
+  if (st.osmBusy) chips.push(['warn','Toppen laden…']);
+  if (st.mode==='live') chips.push(sensorLive()? ['ok','Kompas'+(st.corr?` ${st.corr>0?'+':''}${Math.round(st.corr)}°`:'')] : ['warn','Geen kompas: sleep']);
+  if (st.mode==='live' && st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
+  const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
+  if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
+}
+let toastT; function toast(m,ms=4500){ const t=$('toast'); t.textContent=m; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',ms); }
+
+/* ---------- interaction ---------- */
+const screenProj = () => makeProj(viewRect(cv.clientWidth,cv.clientHeight), currentView());
+// inzoomen: live = digitaal op het camerabeeld, foto = de foto vergroten, panorama = beeldhoek
+function zoomBy(f, at){
+  if (st.mode==='live'){ st.zoom=clamp(st.zoom*f,1,8); syncFovUi(); return; }
+  if (st.mode==='photo'){
+    const pz=st.pz;
+    if (at && f>1){ const r=viewRect(cv.clientWidth,cv.clientHeight); pz.ux=clamp((at.x-r.x)/r.w,0,1); pz.uy=clamp((at.y-r.y)/r.h,0,1); }
+    else if (pz.k<=1){ pz.ux=pz.uy=.5; }
+    pz.k=clamp(pz.k*f,1,16); if (pz.k<=1){ pz.ux=pz.uy=.5; }
+    return;
+  }
+  if (at){ const u=screenProj().u(at.x,at.y); st.view.heading=u.az; st.view.pitch=clamp(u.el,-45,45); }
+  st.fovUser=true; setFov(st.fov/f);
+}
+const pts=new Map(); let drag=null, pinch=null;
+cv.addEventListener('pointerdown', e=>{
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (pts.size===2){ const [a,b]=[...pts.values()]; pinch={d:Math.hypot(a.x-b.x,a.y-b.y), fov:st.fov, zoom:st.zoom, k:st.pz.k}; drag=null; return; }
+  const v=currentView(); drag={x:e.clientX,y:e.clientY,h:v.heading,p:v.pitch,corr:st.corr,pcorr:st.pcorr,moved:false,t:performance.now(),degPx:screenProj().degPx};
+});
+addEventListener('pointermove', e=>{
+  if (!pts.has(e.pointerId)) return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (pinch && pts.size===2){
+    const [a,b]=[...pts.values()], f=Math.hypot(a.x-b.x,a.y-b.y)/Math.max(20,pinch.d);
+    if (st.mode==='live'){ st.zoom=clamp(pinch.zoom*f,1,8); syncFovUi(); }
+    else if (st.mode==='photo'){ st.pz.k=clamp(pinch.k*f,1,16); if (st.pz.k<=1) st.pz.ux=st.pz.uy=.5; }
+    else { st.fovUser=true; setFov(pinch.fov/f); }
+    return;
+  }
+  if (!drag) return;
+  const dx=(e.clientX-drag.x)*drag.degPx, dy=(e.clientY-drag.y)*drag.degPx;
+  if (Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y)>6) drag.moved=true;
+  if (!drag.moved) return;
+  if (sensorLive()){ st.corr=drag.corr-dx; st.pcorr=drag.pcorr+dy; }
+  else { st.view.heading=((drag.h-dx)%360+360)%360; st.view.pitch=clamp(drag.p+dy,-45,45); }
+});
+function endPtr(e){
+  pts.delete(e.pointerId); if (pts.size<2) pinch=null;
+  if (drag && !drag.moved && performance.now()-drag.t<500) tap(e.clientX,e.clientY);
+  if (drag && drag.moved && sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); }
+  drag=null;
+}
+addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
+cv.addEventListener('wheel', e=>{ e.preventDefault(); zoomBy(e.deltaY>0?1/1.1:1.1); }, {passive:false});
+
+function tap(x,y){
+  if (st.aligning){ st.alignPt={x,y}; openAlignList(x,y); return; }
+  const hit=st.hits.find(r=>{
+    if (!r.rot) return x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
+    const dx=x-r.x, dy=y-r.y, u=r.cA*dx-r.sA*dy, w=r.sA*dx+r.cA*dy;  // naar tekstcoördinaten
+    return u>=-6 && u<=r.len+6 && w>=-20 && w<=10;
+  });
+  if (hit){ showDetail(hit.p); return; }
+  if ($('detail').style.display==='block'){ $('detail').style.display='none'; return; }
+  // telescoop: inzoomen rond getikt punt (niet in live, daar zou elke tik het beeld vergroten)
+  if (st.mode!=='live') zoomBy(2,{x,y});
+}
+function showDetail(p){
+  const o=observer(); const g=geo(o,p.lat,p.lon);
+  const dh=Math.round(p.alt-o.alt);
+  const box=$('detail'); st.selected=p;
+  const tag={ai:'aangevuld',custom:'eigen punt',osm:'OpenStreetMap'}[p.kind];
+  box.innerHTML=`<b>${esc(p.name)}</b>${tag?`<span class="ai-tag">${tag}</span>`:''}
+    <div class="d">${p.alt} m hoog, ${(g.d/1000).toFixed(1)} km ver, richting ${Math.round(g.brg)}° ${dirName(g.brg)}.<br>${dh>=0?dh+' m hoger':(-dh)+' m lager'} dan jij. ${p.hidden?'Waarschijnlijk verborgen achter een andere berg.':'Waarschijnlijk zichtbaar.'}</div>
+    <div class="acts"><button id="dTarget">Richt hierop</button><button class="ghost" id="dStand">Sta op deze top</button><button class="ghost" id="dClose">Sluiten</button></div>`;
+  box.style.display='block';
+  $('dTarget').onclick=()=>{ setTarget(p); box.style.display='none'; };
+  $('dStand').onclick=()=>{ setManual(p); if (st.mode!=='pano') setMode('pano'); box.style.display='none'; toast(`Je kijkt nu vanaf ${p.name}.`); };
+  $('dClose').onclick=()=>box.style.display='none';
+}
+function setTarget(p){
+  st.target=p; const o=observer();
+  if (!sensorLive() && o){ const g=geo(o,p.lat,p.lon); st.view.heading=g.brg; }
+  toast(sensorLive()? `Draai tot ${p.name} rood omrand verschijnt.` : `${p.name} staat nu in het midden.`);
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- align ---------- */
+$('btnAlign').onclick=()=>{
+  if (!observer()){ toast('Kies eerst een standpunt.'); return; }
+  st.aligning=true; banner('Tik in het beeld op een top die je herkent.');
+};
+function banner(t){ $('bannerText').textContent=t; $('banner').style.display='flex'; }
+$('bannerX').onclick=()=>{ st.aligning=false; st.alignPt=null; $('banner').style.display='none'; };
+function openAlignList(x,y){
+  const o=observer(), tb=screenProj().u(x,y).az, cache=buildCache(o);
+  const cands=cache.list.map(p=>({p,off:Math.abs(angDiff(p.brg,tb))})).filter(c=>c.off<25)
+    .sort((a,b)=>(a.p.hidden-b.p.hidden)||(a.off-b.off)).slice(0,15);
+  $('alignList').innerHTML = cands.length? '' : '<li>Geen toppen in deze buurt binnen de ingestelde afstand.</li>';
+  for (const c of cands){
+    const li=document.createElement('li');
+    li.innerHTML=`<div>${esc(c.p.name)}<div class="meta">${c.p.alt} m · ${(c.p.d/1000).toFixed(0)} km · ${Math.round(c.off)}° naast je tik${c.p.hidden?' · mogelijk verborgen':''}</div></div>`;
+    const b=document.createElement('button'); b.textContent='Deze'; b.onclick=()=>applyAlign(c.p,x,y); li.appendChild(b);
+    $('alignList').appendChild(li);
+  }
+  openSheet('sheetAlign');
+}
+// foto: beeldhoek zoeken waarbij twee getikte punten precies de juiste hoek uit elkaar liggen
+function solvePhotoFov(ta,tb,dB){
+  const g=fov=>{ const F=1/(2*Math.tan(fov/2*D2R)); return (Math.atan(tb/F)-Math.atan(ta/F))/D2R; };
+  let lo=2, hi=150; if (Math.sign(g(60))!==Math.sign(dB) || Math.abs(dB)<0.3) return null;
+  for (let i=0;i<50;i++){ const m=(lo+hi)/2; if (Math.abs(g(m))<Math.abs(dB)) lo=m; else hi=m; }
+  return (lo+hi)/2;
+}
+function applyAlign(p,x,y){
+  const rect=viewRect(cv.clientWidth,cv.clientHeight), fx=(x-rect.x)/rect.w-.5;
+  let msg=`Uitgelijnd op ${p.name}.`;
+  if (st.mode==='photo'){
+    const la=st.lastAlign;
+    if (la && la.p!==p && Math.abs(fx-la.fx)>0.12){
+      const fov=solvePhotoFov(la.fx,fx,angDiff(p.brg,la.p.brg));
+      if (fov){ st.fovUser=true; setFov(fov); msg+=` Beeldhoek ${Math.round(fov)}°.`; }
+      else msg+=' Die twee toppen staan in omgekeerde volgorde; beeldhoek niet aangepast.';
+    } else msg+=' Tik nog een tweede top ver ernaast om ook de beeldhoek te ijken, of tik Klaar.';
+    st.lastAlign={p,fx};
+  }
+  for (let i=0;i<3;i++){  // perspectief is niet lineair: een paar keer bijstellen
+    const u=screenProj().u(x,y), dh=angDiff(p.brg,u.az), dp=p.elev-u.el;
+    if (sensorLive()){ st.corr+=dh; st.pcorr+=dp; }
+    else { st.view.heading=(st.view.heading+dh+360)%360; st.view.pitch=clamp(st.view.pitch+dp,-45,45); }
+  }
+  if (sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); }
+  closeSheets(); st.alignPt=null; st.aligning=st.mode==='photo';
+  banner(msg);
+}
+
+/* ---------- sheets ---------- */
+function openSheet(id){ closeSheets(); $(id).classList.add('open'); }
+function closeSheets(){ document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open')); }
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{ closeSheets(); if (st.aligning){ st.alignPt=null; } });
+
+$('tLive').onclick=goLive; $('goLive').onclick=goLive;
+$('tPano').onclick=goPano; $('goPano').onclick=goPano;
+$('tSearch').onclick=()=>{ openSheet('sheetSearch'); renderResults(); setTimeout(()=>$('q').focus(),250); };
+$('tMore').onclick=()=>{ openSheet('sheetMore'); renderMore(); };
+$('zoomIn').onclick=()=>zoomBy(1.4);
+$('zoomOut').onclick=()=>zoomBy(1/1.4);
+
+function parseCoords(s){
+  const m=s.match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/); if (!m) return null;
+  const lat=+m[1].replace(',','.'), lon=+m[2].replace(',','.'); if (Math.abs(lat)>90||Math.abs(lon)>180) return null; return {lat,lon};
+}
+function renderResults(){
+  const q=$('q').value.trim().toLowerCase(), o=observer(), ul=$('results'); ul.innerHTML='';
+  const c=parseCoords(q);
+  if (c){
+    const li=document.createElement('li'); li.innerHTML=`<div>Standpunt ${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}<div class="meta">Hoogte komt uit het terreinmodel, of stel je in bij Meer</div></div>`;
+    const b=document.createElement('button'); b.textContent='Sta hier'; b.onclick=()=>{ setManual({...c,name:'Eigen standpunt'}); if(st.mode!=='pano') setMode('pano'); closeSheets(); };
+    li.appendChild(b); ul.appendChild(li); return;
+  }
+  const nq=norm(q);
+  let list=PEAKLIST.filter(p=>!q||norm(p.name).includes(nq));
+  if (o) list=list.map(p=>({p,d:geo(o,p.lat,p.lon).d})).sort((a,b)=>a.d-b.d).map(x=>x.p);
+  else list.sort((a,b)=>(a.kind==='osm')-(b.kind==='osm'));
+  for (const p of list.slice(0,40)){
+    const li=document.createElement('li'); const d=o? ` · ${(geo(o,p.lat,p.lon).d/1000).toFixed(0)} km`:'';
+    li.innerHTML=`<div>${esc(p.name)}${p.kind==='ai'?'<span class="ai-tag">aangevuld</span>':''}<div class="meta">${p.alt} m${d}</div></div>`;
+    const acts=document.createElement('div'); acts.className='acts';
+    if (o){ const b1=document.createElement('button'); b1.textContent='Toon'; b1.onclick=()=>{ closeSheets(); setTarget(p); }; acts.appendChild(b1); }
+    const b2=document.createElement('button'); b2.className='ghost'; b2.textContent='Sta hier'; b2.onclick=()=>{ setManual(p); if(st.mode!=='pano') setMode('pano'); closeSheets(); toast(`Je kijkt nu vanaf ${p.name}. Sleep om rond te kijken.`); };
+    acts.appendChild(b2); li.appendChild(acts); ul.appendChild(li);
+  }
+}
+$('q').addEventListener('input', renderResults);
+
+/* ---------- settings ---------- */
+$('dist').addEventListener('input',e=>{ st.maxDist=+e.target.value; $('distV').textContent=st.maxDist+' km'; });
+$('distV').textContent=st.maxDist+' km';
+$('fov').addEventListener('input',e=>{
+  const v=+e.target.value;
+  if (st.mode==='live'){ // camera ijken: beeldhoek bij zoom 1
+    st.camK*=Math.tan(v/2*D2R)/Math.tan(liveBaseFov()/2*D2R); LS.set('camk',st.camK); syncFovUi();
+  } else { st.fovUser=true; setFov(v); }
+});
+$('optHidden').onchange=e=>st.showHidden=e.target.checked;
+$('optSil').onchange=e=>{ st.showSil=e.target.checked; LS.set('sil',st.showSil); };
+$('optSlant').onchange=e=>{ st.slant=e.target.checked; LS.set('slant',st.slant); };
+$('optSil').checked=st.showSil; $('optSlant').checked=st.slant;
+$('optSun').onchange=e=>st.showSun=e.target.checked;
+$('alt').addEventListener('input',e=>{ st.altOverride = e.target.value===''?null:+e.target.value; });
+$('useGps').onclick=()=>{ startGPS(); st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; closeSheets(); toast(st.gps?'Je GPS-locatie wordt gebruikt.':'Wachten op GPS…'); };
+$('resetCorr').onclick=()=>{ st.corr=0; st.pcorr=0; st.camK=1; LS.set('corr',0); LS.set('pcorr',0); LS.set('camk',1); syncFovUi(); toast('Kompas- en camerakalibratie gewist.'); };
+function renderMore(){
+  const o=observer();
+  syncFovUi();
+  $('obsInfo').textContent = o ? `Standpunt: ${o.lat.toFixed(4)}, ${o.lon.toFixed(4)}, ${Math.round(o.alt)} m (${o.altSrc})${o.altSrc==='geschat' ? ', vul je hoogte in voor betere resultaten':''}.` : 'Nog geen standpunt.';
+  $('osmInfo').textContent = st.osm ? `${st.osm.peaks.length} toppen uit OpenStreetMap geladen rond ${st.osm.lat.toFixed(2)}, ${st.osm.lon.toFixed(2)}.` : st.osmBusy ? 'Toppen uit OpenStreetMap worden geladen…' : 'Nog geen toppen uit OpenStreetMap (daarvoor is internet nodig).';
+  const ul=$('cpList'); ul.innerHTML='';
+  st.custom.forEach((p,i)=>{ const li=document.createElement('li'); li.innerHTML=`<div>${esc(p.name)}<div class="meta">${p.alt} m · ${p.lat}, ${p.lon}</div></div>`; const b=document.createElement('button'); b.className='ghost'; b.textContent='Verwijder'; b.onclick=()=>{ st.custom.splice(i,1); LS.set('custom',st.custom); refreshPeaks(); renderMore(); }; li.appendChild(b); ul.appendChild(li); });
+  $('aiInfo').textContent = st.ai.length? `${st.ai.length} aangevulde toppen bewaard.` : '';
+}
+$('cpAdd').onclick=()=>{
+  const name=$('cpName').value.trim(), lat=+$('cpLat').value.replace(',','.'), lon=+$('cpLon').value.replace(',','.'), alt=+$('cpAlt').value;
+  if (!name||!isFinite(lat)||!isFinite(lon)||!$('cpLat').value||!$('cpLon').value||!isFinite(alt)||!$('cpAlt').value){ toast('Vul naam, breedte, lengte en hoogte in.'); return; }
+  st.custom.push({name,lat,lon,alt}); LS.set('custom',st.custom); refreshPeaks(); ['cpName','cpLat','cpLon','cpAlt'].forEach(i=>$(i).value=''); renderMore(); toast(`${name} toegevoegd.`);
+};
+
+/* ---------- Claude-aanvulling ---------- */
+let samplePromise=null;
+if (window.claude && window.parent!==window && typeof window.claude.use==='function'){ samplePromise=window.claude.use('sample').catch(()=>null); }
+(async()=>{ const s=samplePromise? await samplePromise:null; if (!s) $('aiBox').style.display='none'; })();
+$('btnAi').onclick=async()=>{
+  const o=observer(); if (!o){ toast('Kies eerst een standpunt.'); return; }
+  const sample=samplePromise? await samplePromise:null; if (!sample){ toast('Aanvullen is hier niet beschikbaar.'); return; }
+  const btn=$('btnAi'); btn.disabled=true; btn.textContent='Bezig, dit duurt even…';
+  const known=PEAKLIST.filter(p=>p.kind!=='osm').map(p=>p.name).join(', ');
+  const prompt=`You help a mountain peak identification app. Observer position: latitude ${o.lat.toFixed(4)}, longitude ${o.lon.toFixed(4)}.
+List up to 60 real, named mountain summits within ${Math.min(st.maxDist,80)} km of this position that are NOT in this list: ${known}.
+Only include summits whose coordinates you know with good confidence (within about 300 m). Prefer well-known, prominent summits.
+Return ONLY JSON: {"peaks":[{"name":"...","lat":46.1234,"lon":7.1234,"ele":3000}]}`;
+  try{
+    const r=await sample.json(prompt,{modelTier:'default'});
+    const arr=(r&&r.peaks)||[]; let n=0;
+    for (const p of arr){
+      const lat=+p.lat, lon=+p.lon, alt=Math.round(+p.ele);
+      if (!p.name||!isFinite(lat)||!isFinite(lon)||!isFinite(alt)||alt<200||alt>5000) continue;
+      if (geo(o,lat,lon).d>(st.maxDist+30)*1000) continue;
+      if (st.ai.some(a=>a.name===p.name)) continue;
+      st.ai.push({name:String(p.name).slice(0,40),lat,lon,alt}); n++;
+    }
+    LS.set('ai',st.ai); refreshPeaks(); renderMore();
+    toast(n? `${n} toppen aangevuld. Ze hebben een wit bordje.` : 'Geen extra toppen gevonden.');
+  }catch(e){
+    toast(e&&e.code==='not_granted' ? 'Aanvullen werd niet toegestaan.' : 'Aanvullen lukte niet. Probeer later opnieuw.');
+  }finally{ btn.disabled=false; btn.textContent='Toppen rond dit standpunt aanvullen'; }
+};
+
+/* ---------- save image ---------- */
+let dlPromise=null; if (window.claude && window.parent!==window && typeof window.claude.use==='function'){ dlPromise=window.claude.use('downloads').catch(()=>null); }
+$('btnShot').onclick=async()=>{
+  if (!observer()){ toast('Nog niets om te bewaren.'); return; }
+  let W,H,src=null;
+  if (st.mode==='photo' && st.photo){ W=st.photo.img.naturalWidth; H=st.photo.img.naturalHeight; src=st.photo.img; }
+  else if (st.mode==='live' && st.camOn && video.videoWidth){ const sw=cv.clientWidth, sh=cv.clientHeight, sc=Math.min(2.5, Math.max(1, video.videoWidth/sw)); W=Math.round(sw*sc); H=Math.round(sh*sc); src=video; }
+  else { W=cv.clientWidth*2; H=cv.clientHeight*2; }
+  const c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d');
+  let s;
+  if (st.mode==='photo'){ x.drawImage(src,0,0,W,H); s=Math.max(1, W/Math.min(cv.clientWidth, viewRect(cv.clientWidth,cv.clientHeight).w)); }
+  else {
+    s=W/cv.clientWidth;
+    if (src){ const vw=video.videoWidth, vh=video.videoHeight, k=Math.max(W/vw,H/vh)*st.zoom; x.drawImage(video,(W-vw*k)/2,(H-vh*k)/2,vw*k,vh*k); }
+    else { const gr=x.createLinearGradient(0,0,0,H); const cs=getComputedStyle(document.documentElement); gr.addColorStop(0,cs.getPropertyValue('--sky1').trim()); gr.addColorStop(1,cs.getPropertyValue('--sky2').trim()); x.fillStyle=gr; x.fillRect(0,0,W,H); }
+  }
+  drawScene(x,W,H,s,{rect:{x:0,y:0,w:W,h:H}, labelTop:12*s, labelH:H-40*s, ui:false});
+  const o=observer(); x.fillStyle='rgba(0,0,0,.55)'; x.fillRect(0,H-26*s,W,26*s); x.fillStyle='#fff'; x.font=`500 ${12*s}px Barlow, sans-serif`;
+  x.fillText(`${o.lat.toFixed(4)}, ${o.lon.toFixed(4)} · ${Math.round(o.alt)} m · richting ${Math.round(currentView().heading)}°`, 10*s, H-9*s);
+  const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
+  const dl=dlPromise? await dlPromise:null;
+  const name=`toppen-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.jpg`;
+  if (dl){ try{ await dl.save({filename:name, data:blob}); toast('Bewaard.'); }catch(e){ if (e.code!=='declined') toast('Bewaren lukte niet hier.'); } return; }
+  const file=new File([blob],name,{type:'image/jpeg'});
+  if (navigator.canShare && navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file]}); }catch(e){} return; }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+};
+
+/* ---------- start ---------- */
+resize(); setFov(defaultFov()); setMode('pano'); requestAnimationFrame(frame);
+if (!st.obsManual) st.view.heading=180;
+})();
+</script>
+<script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{});}</script>
+</body>
+</html>
