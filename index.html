@@ -661,7 +661,9 @@ function syncFovUi(){
 async function goLive(){
   $('intro').style.display='none';
   const perm = askMotionPermission();  // eerst, binnen de tik
-  setMode('live'); startGPS(); if (st.obsSrc==='none'||st.obsSrc==='photo') st.obsSrc = st.obsManual? 'manual':'gps';
+  // live = waar je echt staat: altijd GPS, ook als je in het panorama op een andere top stond
+  setMode('live'); startGPS(); st.target=null;
+  if (st.obsSrc!=='gps'){ st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; }
   await perm; await startCamera();
   setTimeout(()=>{ if (st.mode==='live' && !sensorLive()) toast('Geen kompas ontvangen. Tik opnieuw op Live en sta Beweging en richting toe, of sleep over het beeld.', 7000); }, 3000);
 }
