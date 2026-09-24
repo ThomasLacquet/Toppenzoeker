@@ -34,6 +34,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
 .bottom{bottom:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));justify-content:space-around;background:linear-gradient(transparent,rgba(0,0,0,.65))}
 .heading{font:700 1.7rem/1 "Barlow Condensed",sans-serif}
 .chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end;max-width:65%}
+.chip.retry{cursor:pointer}
 .chip{font-size:.78rem;padding:3px 7px;border-radius:10px;background:var(--glass);border:1px solid var(--line);white-space:nowrap}
 .chip.ok::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:5px}
 .chip.warn::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:5px}
@@ -591,7 +592,7 @@ function startGPS(){
     if (st.obsSrc==='none') st.obsSrc='gps';
   }, err=>{
     st.gpsErr = err.code===1 ? 'Locatie geweigerd' : 'Geen GPS-fix';
-    if (err.code===1) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch=null; toast('Locatie is geweigerd. Zet in Instellingen › Privacy › Locatievoorzieningen › Safari-websites op "Bij gebruik", of kies een standpunt via Zoeken.', 9000); }
+    if (err.code===1) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch=null; toast('Locatie is geweigerd. Zet in Instellingen › Privacy en beveiliging › Locatievoorzieningen › Safari-websites op "Bij gebruik" met Nauwkeurige locatie aan, en in Safari via het adresbalkmenu › Website-instellingen › Locatie op "Vraag". Tik daarna op de oranje locatieknop bovenaan.', 14000); }
   }, {enableHighAccuracy:true, maximumAge:5000, timeout:30000});
 }
 async function startCamera(){
@@ -920,7 +921,7 @@ function updateTop(){
   if (st.obsSrc==='gps' && st.gps) chips.push(['ok',`GPS ±${Math.round(st.gps.acc)} m`]);
   else if (st.obsSrc==='manual' && st.obsManual) chips.push(['ok',esc(st.obsManual.name||'Eigen standpunt')]);
   else if (st.obsSrc==='photo' && st.obsPhoto) chips.push(['ok','Locatie uit foto']);
-  else chips.push(['warn', st.gpsErr || 'Wachten op locatie']);
+  else chips.push(['warn retry', st.gpsErr ? st.gpsErr+' · opnieuw' : 'Wachten op locatie']);
   if (o) chips.push([o.altSrc==='geschat'?'warn':'', `${Math.round(o.alt)} m`]);
   if (o) chips.push(DEM.state==='loading' ? ['warn','Terrein laden…'] : st.cache&&st.cache.terrain ? ['ok','Terrein'] : ['warn','Geen terrein']);
   if (st.osmBusy) chips.push(['warn','Toppen laden…']);
@@ -929,6 +930,8 @@ function updateTop(){
   const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
   if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
 }
+// op de oranje locatiechip tikken: opnieuw om toestemming vragen
+$('chips').addEventListener('click', e=>{ if (e.target.closest('.retry') && st.gpsErr){ st.gpsErr=null; startGPS(); st.obsSrc='gps'; toast('Locatie opnieuw aangevraagd…'); } });
 let toastT; function toast(m,ms=4500){ const t=$('toast'); t.textContent=m; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',ms); }
 
 /* ---------- interaction ---------- */
