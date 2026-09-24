@@ -661,11 +661,16 @@ function screenAngle(){
 }
 function onOrient(e, absolute){
   if (e.beta==null || e.gamma==null) return;
-  const s=st.sensor, b=e.beta*D2R, g=e.gamma*D2R, ang=screenAngle();
-  // roll: hoeveel de rechterkant van het scherm omhoog staat (positief = rechts omhoog)
-  const upR = ang===90 ? Math.sin(b) : ang===-90 ? -Math.sin(b) : ang===180 ? Math.cos(b)*Math.sin(g) : -Math.cos(b)*Math.sin(g);
-  const roll=Math.asin(clamp(upR,-1,1))/D2R;
-  s.roll = s.roll==null || Math.abs(roll-s.roll)>30 ? roll : s.roll*0.5+roll*0.5;
+  const s=st.sensor, b=e.beta*D2R, g=e.gamma*D2R;
+  // draaiing van het toestel rond de camera-as: 0 = staand, +90 = kwartslag linksom (rechterkant omhoog).
+  // Uit de omhoog-component van de x- en y-as van het toestel, dus los van hoe het scherm staat.
+  const upX=-Math.cos(b)*Math.sin(g), upY=Math.sin(b);
+  if (Math.hypot(upX,upY)>0.3){
+    const t=Math.atan2(upX,upY);
+    s.rx = s.rx==null ? Math.sin(t) : s.rx*0.5+Math.sin(t)*0.5;
+    s.ry = s.ry==null ? Math.cos(t) : s.ry*0.5+Math.cos(t)*0.5;
+    s.devRoll=Math.atan2(s.rx,s.ry)/D2R;
+  }
   // omhoog-component hangt niet af van alpha
   const p=Math.asin(clamp(-Math.cos(b)*Math.cos(g),-1,1))/D2R;
   let h=null, k;
@@ -673,16 +678,20 @@ function onOrient(e, absolute){
     // iPhone: het kompas is traag en schokkerig, de gyroscoop (alpha) snel maar zonder noorden.
     // Volg de beweging met de gyroscoop en trek het noorden langzaam naar het kompas.
     st.sensor.kind='ios'; s.acc=e.webkitCompassAccuracy;
-    // het iPhone-kompas meet t.o.v. de bovenkant van het toestel: liggend verschuift dat met de schermrotatie
-    const hr=camHeading(e), cmp=(e.webkitCompassHeading+ang+360)%360;
-    if (hr==null){ h=cmp; k=0.25; }
+    // Het iPhone-kompas meet t.o.v. de bovenkant van het toestel. Liggend (ook met rotatievergrendeling)
+    // verschuift dat een kwartslag: corrigeer met de fysieke stand, niet met de schermstand.
+    const dr=s.devRoll||0, q=Math.round(dr/90)*90, steady=Math.abs(dr-q)<25;
+    const hr=camHeading(e), cmp=(e.webkitCompassHeading+q+360)%360;
+    if (hr==null){ if (s.off==null){ h=cmp; k=0.25; } else { h=null; } }
     else {
       const diff=angDiff(cmp,hr);
       s.n=(s.n||0)+1;
-      if (s.off==null || Math.abs(angDiff(diff,s.off))>45) s.off=diff;          // start of grote sprong
-      else s.off=(s.off+angDiff(diff,s.off)*(s.n<60?0.1:0.015)+360)%360;
+      // noorden alleen bijstellen als de gsm netjes staand of liggend staat, niet halverwege het draaien
+      if (s.off==null) s.off=diff;
+      else if (steady){ if (Math.abs(angDiff(diff,s.off))>45 && s.n<30) s.off=diff; else s.off=(s.off+angDiff(diff,s.off)*(s.n<60?0.1:0.015)+360)%360; }
       h=(hr+s.off+360)%360; k=0.6;
     }
+    if (h==null) return;
   } else if (absolute||e.absolute){
     h=camHeading(e); if (h==null) return; k=0.4; st.sensor.kind='android';
   } else return;
@@ -854,7 +863,16 @@ addEventListener('resize', resize);
 const DIRS=['N','NNO','NO','ONO','O','OZO','ZO','ZZO','Z','ZZW','ZW','WZW','W','WNW','NW','NNW'];
 const dirName = h => DIRS[Math.round(h/22.5)%16];
 
+// Hoe ver staat het beeld gedraaid t.o.v. het scherm? Draait het scherm mee, dan blijft er alleen
+// een kleine scheefstand over. Staat de rotatievergrendeling aan, dan is dat een kwartslag.
+function liveTurn(){
+  if (!sensorLive() || st.sensor.devRoll==null) return {q:0, r:0};
+  const R=angDiff(st.sensor.devRoll, screenAngle());
+  let q=st.vq||0; if (Math.abs(angDiff(R,q))>55) q=Math.round(R/90)*90; st.vq=((q+180)%360+360)%360-180;
+  return {q:st.vq, r:angDiff(R,st.vq)};
+}
 function viewRect(w,h){
+  if (st.mode==='live' && Math.abs(st.vq||0)===90) return {x:w/2-h/2, y:h/2-w/2, w:h, h:w};
   if (st.mode==='photo' && st.photo){
     const iw=st.photo.img.naturalWidth, ih=st.photo.img.naturalHeight, s=Math.min(w/iw,h/ih)*st.pz.k, rw=iw*s, rh=ih*s;
     if (st.pz.k<=1) return {x:(w-rw)/2, y:(h-rh)/2, w:rw, h:rh};
@@ -1033,7 +1051,9 @@ function frame(){
   const w=cv.clientWidth, h=cv.clientHeight, dpr=devicePixelRatio||1;
   ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
   if (st.mode==='live'){
-    st.fov=liveBaseFov()/st.zoom;
+    const turn=liveTurn(), base=liveBaseFov();
+    // kwartslag gedraaid: de breedte van het beeld is nu de hoogte van het scherm
+    st.fov=(Math.abs(turn.q)===90 ? 2*Math.atan(Math.tan(base/2*D2R)*h/w)/D2R : base)/st.zoom;
     if (st.zoom!==lastZoom){ lastZoom=st.zoom; video.style.transform = st.zoom>1.001 ? `scale(${st.zoom})` : ''; }
   }
   const o=observer(); if (o){ ensureDem(o); ensureOsm(o); }
@@ -1041,7 +1061,8 @@ function frame(){
   if (st.mode==='photo' && st.photo){ ctx.fillStyle='#0e1418'; ctx.fillRect(0,0,w,h); ctx.drawImage(st.photo.img, rect.x,rect.y,rect.w,rect.h); }
   const barBottom=document.querySelector('.bar.top').getBoundingClientRect().bottom;
   const botTop=document.querySelector('.bar.bottom').getBoundingClientRect().top;
-  const labelTop=Math.max(rect.y+8, barBottom+4), bandY=Math.min(rect.y+rect.h-8, botTop-12);
+  let labelTop=Math.max(rect.y+8, barBottom+4), bandY=Math.min(rect.y+rect.h-8, botTop-12);
+  if (st.mode==='live' && st.vq){ labelTop=rect.y+16; bandY=rect.y+rect.h-20; } // gedraaid: eigen randen
   st.roll = curRoll();
   st.hits = drawScene(ctx, w, h, 1, {rect, labelTop, labelH:Math.max(100, bandY-labelTop), bandY, ui:true, roll:st.roll});
   if (st.aligning && st.alignPt){ ctx.strokeStyle='#ff4d4d'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(st.alignPt.x,st.alignPt.y,14,0,7); ctx.stroke(); }
@@ -1123,11 +1144,12 @@ addEventListener('pointermove', e=>{
     return;
   }
   if (!drag) return;
-  const dx=(e.clientX-drag.x)*drag.degPx, dy=(e.clientY-drag.y)*drag.degPx;
+  const rr=-(st.roll||0), mx=e.clientX-drag.x, my=e.clientY-drag.y;
+  const dx=(mx*Math.cos(rr)-my*Math.sin(rr))*drag.degPx, dy=(mx*Math.sin(rr)+my*Math.cos(rr))*drag.degPx;
   if (Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y)>6) drag.moved=true;
   if (!drag.moved) return;
   // live: slepen werkt op één as, zodat een horizontale veeg de kanteling niet verschuift
-  if (drag.axis==null) drag.axis = Math.abs(e.clientX-drag.x)>=Math.abs(e.clientY-drag.y) ? 'h' : 'v';
+  if (drag.axis==null) drag.axis = Math.abs(dx)>=Math.abs(dy) ? 'h' : 'v';
   if (sensorLive()){ if (drag.axis==='h') st.corr=drag.corr-dx; else st.pcorr=drag.pcorr+dy; }
   else { st.view.heading=((drag.h-dx)%360+360)%360; st.view.pitch=clamp(drag.p+dy,-45,45); }
 });
@@ -1140,7 +1162,7 @@ function endPtr(e){
 addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
 cv.addEventListener('wheel', e=>{ e.preventDefault(); zoomBy(e.deltaY>0?1/1.1:1.1); }, {passive:false});
 
-function curRoll(){ return sensorLive() && st.sensor.roll!=null ? st.sensor.roll*D2R : 0; }
+function curRoll(){ if (st.mode!=='live') return 0; const t=liveTurn(); return (t.q+t.r)*D2R; }
 // schermpunt naar het (niet-gedraaide) beeldvlak van de overlay
 function unroll(x,y){
   const r=st.roll||0; if (!r) return [x,y];
@@ -1241,6 +1263,7 @@ $('btnAuto').onclick=()=>{
   if (!st.camOn || !video.videoWidth){ toast('De camera loopt nog niet.'); return; }
   const o=observer(); if (!o){ toast('Wachten op je locatie.'); return; }
   const cache=buildCache(o); if (!cache.terrain){ toast('Het terrein is nog niet geladen. Probeer zo opnieuw.'); return; }
+  if (Math.abs(st.roll||0)>8*D2R){ toast('Houd je gsm recht (staand, of liggend met het scherm mee gedraaid) voor Auto. Scheef? Gebruik Richt.', 6000); return; }
   const r=autoAlign(cache);
   if (!r) { toast('De bergkam is niet duidelijk genoeg te herkennen. Richt op een heldere skyline, of gebruik ◎.', 6000); return; }
   if (!r.dh && !r.dp){ toast('De kam past al.'); return; }
@@ -1469,7 +1492,8 @@ $('btnShot').onclick=async()=>{
     if (src){ const vw=video.videoWidth, vh=video.videoHeight, k=Math.max(W/vw,H/vh)*st.zoom; x.drawImage(video,(W-vw*k)/2,(H-vh*k)/2,vw*k,vh*k); }
     else { const gr=x.createLinearGradient(0,0,0,H); const cs=getComputedStyle(document.documentElement); gr.addColorStop(0,cs.getPropertyValue('--sky1').trim()); gr.addColorStop(1,cs.getPropertyValue('--sky2').trim()); x.fillStyle=gr; x.fillRect(0,0,W,H); }
   }
-  drawScene(x,W,H,s,{rect:{x:0,y:0,w:W,h:H}, labelTop:12*s, labelH:H-40*s, ui:false, roll:st.mode==='live'?curRoll():0});
+  const turned=st.mode==='live' && Math.abs(st.vq||0)===90, er=turned ? {x:W/2-H/2,y:H/2-W/2,w:H,h:W} : {x:0,y:0,w:W,h:H};
+  drawScene(x,W,H,s,{rect:er, labelTop:er.y+12*s, labelH:er.h-40*s, ui:false, roll:st.mode==='live'?curRoll():0});
   const o=observer(); x.fillStyle='rgba(0,0,0,.55)'; x.fillRect(0,H-26*s,W,26*s); x.fillStyle='#fff'; x.font=`500 ${12*s}px Barlow, sans-serif`;
   x.fillText(`${o.lat.toFixed(4)}, ${o.lon.toFixed(4)} · ${Math.round(o.alt)} m · richting ${Math.round(currentView().heading)}°`, 10*s, H-9*s);
   const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
