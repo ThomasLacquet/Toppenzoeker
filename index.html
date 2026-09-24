@@ -105,6 +105,7 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
 <div class="side">
   <button id="zoomIn" aria-label="Inzoomen">+</button>
   <button id="zoomOut" aria-label="Uitzoomen">−</button>
+  <button id="btnAuto" aria-label="Automatisch uitlijnen op de bergkam" title="Automatisch uitlijnen" style="font:700 .8rem 'Barlow Condensed',sans-serif">AUTO</button>
   <button id="btnAlign" aria-label="Uitlijnen op een bekende top" title="Uitlijnen">◎</button>
   <button id="btnShot" class="shutter" aria-label="Foto met namen bewaren" title="Bewaren">⤓</button>
 </div>
@@ -942,7 +943,7 @@ function updateTop(){
   if (o) chips.push([o.altSrc==='geschat'?'warn':'', `${Math.round(o.alt)} m`]);
   if (o) chips.push(DEM.state==='loading' ? ['warn','Terrein laden…'] : st.cache&&st.cache.terrain ? ['ok','Terrein'] : ['warn','Geen terrein']);
   if (st.osmBusy) chips.push(['warn','Toppen laden…']);
-  if (st.mode==='live') chips.push(sensorLive()? ['ok','Kompas'+(st.corr?` ${st.corr>0?'+':''}${Math.round(st.corr)}°`:'')] : ['warn','Geen kompas: sleep']);
+  if (st.mode==='live') chips.push(sensorLive()? ['ok','Kompas'+(Math.round(st.corr)?` ${st.corr>0?'+':''}${Math.round(st.corr)}°`:'')+(Math.round(st.pcorr)?` ↕${st.pcorr>0?'+':''}${Math.round(st.pcorr)}°`:'')] : ['warn','Geen kompas: sleep']);
   if (st.mode==='live' && st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
   const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
   if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
@@ -985,7 +986,9 @@ addEventListener('pointermove', e=>{
   const dx=(e.clientX-drag.x)*drag.degPx, dy=(e.clientY-drag.y)*drag.degPx;
   if (Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y)>6) drag.moved=true;
   if (!drag.moved) return;
-  if (sensorLive()){ st.corr=drag.corr-dx; st.pcorr=drag.pcorr+dy; }
+  // live: slepen werkt op één as, zodat een horizontale veeg de kanteling niet verschuift
+  if (drag.axis==null) drag.axis = Math.abs(e.clientX-drag.x)>=Math.abs(e.clientY-drag.y) ? 'h' : 'v';
+  if (sensorLive()){ if (drag.axis==='h') st.corr=drag.corr-dx; else st.pcorr=drag.pcorr+dy; }
   else { st.view.heading=((drag.h-dx)%360+360)%360; st.view.pitch=clamp(drag.p+dy,-45,45); }
 });
 function endPtr(e){
@@ -1028,6 +1031,56 @@ function setTarget(p){
   toast(sensorLive()? `Draai tot ${p.name} rood omrand verschijnt.` : `${p.name} staat nu in het midden.`);
 }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- automatisch uitlijnen op de bergkam ---------- */
+// Zoek per kolom de grens lucht/berg in het camerabeeld en schuif de berekende kam daarop.
+$('btnAuto').onclick=()=>{
+  if (st.mode!=='live'){ toast('Automatisch uitlijnen werkt in de live-camera. Gebruik ◎ bij een foto.'); return; }
+  if (!st.camOn || !video.videoWidth){ toast('De camera loopt nog niet.'); return; }
+  const o=observer(); if (!o){ toast('Wachten op je locatie.'); return; }
+  const cache=buildCache(o); if (!cache.terrain){ toast('Het terrein is nog niet geladen. Probeer zo opnieuw.'); return; }
+  const r=autoAlign(cache);
+  if (!r) { toast('De bergkam is niet duidelijk genoeg te herkennen. Richt op een heldere skyline, of gebruik ◎.', 6000); return; }
+  st.corr+=r.dh; st.pcorr+=r.dp; LS.set('corr',st.corr); LS.set('pcorr',st.pcorr);
+  toast(`Uitgelijnd op de bergkam: richting ${r.dh>=0?'+':''}${r.dh.toFixed(1)}°, kanteling ${r.dp>=0?'+':''}${r.dp.toFixed(1)}°.`);
+};
+function autoAlign(cache){
+  const cw=cv.clientWidth, ch=cv.clientHeight, S=0.25, W=Math.round(cw*S), H=Math.round(ch*S);
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d',{willReadFrequently:true});
+  const vw=video.videoWidth, vh=video.videoHeight, k=Math.max(W/vw,H/vh)*st.zoom;
+  const P=screenProj();                       // zelfde moment als het beeld
+  g.drawImage(video,(W-vw*k)/2,(H-vh*k)/2,vw*k,vh*k);
+  const d=g.getImageData(0,0,W,H).data;
+  // helderheid met extra gewicht voor blauw: lucht is licht en blauw, berg donkerder
+  const col=new Float32Array(W*H);
+  for (let y=0;y<H;y++) for (let x=0;x<W;x++){ const i=(y*W+x)*4; col[x*H+y]=(d[i]+d[i+1]+d[i+2])/3+0.7*(d[i+2]-d[i]); }
+  const det=new Float32Array(W).fill(NaN), wt=new Float32Array(W), B=5, pre=new Float32Array(H+1);
+  for (let x=1;x<W-1;x++){
+    for (let y=0;y<H;y++) pre[y+1]=pre[y]+(col[(x-1)*H+y]+col[x*H+y]+col[(x+1)*H+y])/3;
+    let best=0, by=-1;
+    for (let y=B;y<H-B-1;y++){ const sc=(pre[y]-pre[y-B])/B-(pre[y+1+B]-pre[y+1])/B; if (sc>best){ best=sc; by=y; } }
+    if (best>20){ det[x]=by; wt[x]=Math.min(1,best/70); }
+  }
+  let wsum=0; for (let x=0;x<W;x++) wsum+=wt[x];
+  if (wsum<W*0.25) return null;
+  const pxDeg=S/P.degPx, Rg=Math.min(Math.round(20*pxDeg), 120);
+  const model=new Float32Array(W+2*Rg);
+  for (let j=0;j<model.length;j++){
+    const az=P.u((j-Rg)/S, ch/2).az, q=P.p(az, silAt(cache.sil,az));
+    model[j]= q ? q[1]*S : NaN;
+  }
+  const cap=6, cost=(sx,sy)=>{ let t=0,n=0;
+    for (let x=0;x<W;x++){ if (!wt[x]) continue; const m=model[x+sx+Rg]; if (m!==m) continue; t+=wt[x]*Math.min(cap,Math.abs(det[x]-(m+sy))); n+=wt[x]; }
+    return n>wsum*0.6 ? t/n : 1e9; };
+  let best=[1e9,0,0];
+  for (let sx=-Rg;sx<=Rg;sx++) for (let sy=-Rg;sy<=Rg;sy++){ const cst=cost(sx,sy); if (cst<best[0]) best=[cst,sx,sy]; }
+  const c0=cost(0,0);
+  // alleen toepassen als de kam duidelijk beter past dan nu
+  if (!(best[1]||best[2])) return {dh:0,dp:0};
+  if (best[0]>3 || best[0]>c0*0.75) return null;
+  return {dh:best[1]/pxDeg, dp:best[2]/pxDeg};
+}
 
 /* ---------- align ---------- */
 $('btnAlign').onclick=()=>{
