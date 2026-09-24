@@ -172,7 +172,7 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   <div class="row"><label for="dist">Maximale afstand <span id="distV"></span></label><input type="range" id="dist" min="10" max="250" step="5" value="120"></div>
   <div class="row"><label for="fov">Beeldhoek <span id="fovV"></span></label><input type="range" id="fov" min="5" max="120" step="1" value="52">
     <p class="hint">Staan de labels te ver uit elkaar of te dicht op elkaar ten opzichte van de echte toppen? Pas dit aan. In live-modus ijk je zo de camera (wordt onthouden); bij een foto kan het ook met ◎ op twee toppen.</p></div>
-  <label class="check"><input type="checkbox" id="optHidden"> Toon ook verborgen toppen (gedimd)</label>
+  <label class="check"><input type="checkbox" id="optHidden" checked> Toon ook verborgen toppen (gedimd)</label>
   <label class="check"><input type="checkbox" id="optSil" checked> Toon bergkammen over de camera</label>
   <label class="check"><input type="checkbox" id="optSlant" checked> Schuine namen (zoals PeakFinder)</label>
   <label class="check"><input type="checkbox" id="optSun" checked> Toon zon en zonnebaan van vandaag</label>
@@ -180,6 +180,10 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   <div class="row"><label for="alt">Mijn hoogte in meter</label><input type="number" id="alt" inputmode="numeric" placeholder="Automatisch"></div>
   <p class="hint" id="obsInfo"></p>
   <div class="grid2" style="margin-top:8px"><button class="ghost" id="useGps">Gebruik mijn GPS</button><button class="ghost" id="resetCorr">Kalibratie wissen</button></div>
+  <h3>Offline</h3>
+  <p class="hint">Download terrein en toppen rond je standpunt: 30 km om rond te wandelen, en zo ver je kijkt (Maximale afstand). Daarna werkt de app daar zonder bereik. Tip: zet de app op je beginscherm, anders kan Safari de gegevens wissen als je de app een week niet opent.</p>
+  <button id="btnOffline" style="width:100%;margin-top:8px">Dit gebied downloaden</button>
+  <p class="hint" id="offInfo"></p>
   <h3>Toppen</h3>
   <p class="hint">Ingebouwd: een kleine 200 bekende toppen. Met internet worden alle benoemde toppen rond je standpunt (tot 150 km) uit OpenStreetMap geladen en bewaard.</p>
   <p class="hint" id="osmInfo"></p>
@@ -274,7 +278,7 @@ const st = {
   fov:52, fovUser:false, maxDist:120,
   zoom:1,                      // live: digitale zoom op het camerabeeld
   pz:{k:1, ux:.5, uy:.5},      // foto: zoom en middelpunt (als fractie van de foto)
-  showHidden:false, showSil:LS.get('sil',true), showSun:true, slant:LS.get('slant',true), baseY:null,
+  showHidden:LS.get('hidden',true), showSil:LS.get('sil',true), showSun:true, slant:LS.get('slant',true), baseY:null,
   target:null, selected:null, aligning:false, alignPt:null, lastAlign:null,
   photo:null,                  // {img, exif}
   custom:LS.get('custom',[]), ai:LS.get('ai',[]),
@@ -318,8 +322,14 @@ function fetchTile(z,x,y){
       }catch(err){ e=null; }
       DEM.pend.delete(k); res(e);
     };
-    img.onerror=()=>{ DEM.pend.delete(k); res(null); };
-    img.src=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+    const url=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+    img.onerror=async()=>{
+      // offline zonder actieve service worker: rechtstreeks uit de offline-opslag
+      try{ const hit='caches' in window && await caches.match(url,{ignoreVary:true});
+        if (hit){ const bu=URL.createObjectURL(await hit.blob()); img.onerror=()=>{ DEM.pend.delete(k); res(null); }; img.src=bu; return; } }catch(e){}
+      DEM.pend.delete(k); res(null);
+    };
+    img.src=url;
   });
   DEM.pend.set(k,p); return p;
 }
@@ -330,7 +340,7 @@ function elevZ(lat,lon,z){
   const i=Math.floor(px), j=Math.floor(py), fx=px-i, fy=py-j, b=j*256+i;
   return (t[b]*(1-fx)+t[b+1]*fx)*(1-fy)+(t[b+256]*(1-fx)+t[b+257]*fx)*fy;
 }
-function demAt(lat,lon){ for (const z of [12,10,8]){ const e=elevZ(lat,lon,z); if (e!=null) return e; } return null; }
+function demAt(lat,lon){ for (const z of [12,11,10,8]){ const e=elevZ(lat,lon,z); if (e!=null) return e; } return null; }
 function ensureDem(o){
   const want=[o.lat.toFixed(2),o.lon.toFixed(2),st.maxDist].join('|');
   if (want===DEM.want) return; DEM.want=want;
@@ -353,12 +363,14 @@ function ensureDem(o){
 
 /* ---------- toppen uit OpenStreetMap ---------- */
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
-async function ensureOsm(o){
-  if (st.osmBusy || (st.osmFail && Date.now()-st.osmFail<60000)) return;
-  const r=Math.min(st.maxDist,150), c=st.osm;
-  if (c && geo(c,o.lat,o.lon).d/1000 + r <= c.r + 1) return;
+if (st.osm && !st.osm.areas) st.osm={areas:[{lat:st.osm.lat,lon:st.osm.lon,r:st.osm.r}], peaks:st.osm.peaks};
+const osmCovered = (o,r) => st.osm && st.osm.areas.some(a=>geo(a,o.lat,o.lon).d/1000 + r <= a.r + 1);
+async function ensureOsm(o, want){
+  if (st.osmBusy || (!want && (st.osmFail && Date.now()-st.osmFail<60000 || navigator.onLine===false))) return false;
+  const r=want || Math.min(st.maxDist,150);
+  if (osmCovered(o,r)) return true;
   st.osmBusy=true;
-  const R2=Math.min(160, r+25), dLat=R2/111.32, dLon=R2/(111.32*Math.cos(o.lat*D2R));
+  const R2=Math.min(200, r+25), dLat=R2/111.32, dLon=R2/(111.32*Math.cos(o.lat*D2R));
   const bbox=[o.lat-dLat,o.lon-dLon,o.lat+dLat,o.lon+dLon].map(v=>v.toFixed(4)).join(',');
   const q=`[out:csv(::lat,::lon,"name","ele";false)][timeout:90];node["natural"~"^(peak|volcano)$"]["name"]["ele"](${bbox})(if:number(t["ele"])>=300);out;`;
   try{
@@ -379,10 +391,59 @@ async function ensureOsm(o){
       if (!name || !isFinite(lat) || !isFinite(lon) || !isFinite(alt) || alt<300 || alt>4900) continue;
       peaks.push([name,+lat.toFixed(5),+lon.toFixed(5),alt]);
     }
-    st.osm={lat:o.lat, lon:o.lon, r:R2, peaks}; LS.set('osm',st.osm); refreshPeaks();
-    if (!st.osmMsg){ st.osmMsg=true; toast(`${peaks.length} toppen uit OpenStreetMap geladen.`); }
-  }catch(e){ st.osmFail=Date.now(); }
+    // samenvoegen met eerder bewaarde gebieden (voor offline gebruik op meerdere plekken)
+    const old=st.osm||{areas:[],peaks:[]}, seen=new Set(), key=q=>q[0]+'|'+q[1].toFixed(3)+'|'+q[2].toFixed(3);
+    const all=[];
+    for (const q of peaks.concat(old.peaks)){ const k=key(q); if (!seen.has(k)){ seen.add(k); all.push(q); } }
+    st.osm={areas:old.areas.concat([{lat:o.lat, lon:o.lon, r:R2}]).slice(-8), peaks:all.slice(0,80000)};
+    try{ localStorage.setItem('tz_osm',JSON.stringify(st.osm)); }
+    catch(e){ st.osm={areas:[{lat:o.lat,lon:o.lon,r:R2}], peaks}; LS.set('osm',st.osm); } // opslag vol: enkel het nieuwste gebied
+    refreshPeaks();
+    if (!st.osmMsg && !want){ st.osmMsg=true; toast(`${peaks.length} toppen uit OpenStreetMap geladen.`); }
+    return true;
+  }catch(e){ st.osmFail=Date.now(); return false; }
   finally{ st.osmBusy=false; }
+}
+
+/* ---------- offline: gebied vooraf downloaden ---------- */
+const TILE_CACHE='toppen-terrein-v1', OFF_R=30; // km rond je standpunt om rond te lopen
+const tileUrl=(z,x,y)=>`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+function tilesAround(o,z,radM){
+  const out=[], dLat=radM/111320, dLon=radM/(111320*Math.cos(o.lat*D2R));
+  const [x1,y1]=tileXY(o.lat+dLat,o.lon-dLon,z), [x2,y2]=tileXY(o.lat-dLat,o.lon+dLon,z);
+  for (let x=Math.floor(x1);x<=Math.floor(x2);x++) for (let y=Math.floor(y1);y<=Math.floor(y2);y++) out.push([z,x,y]);
+  return out;
+}
+async function downloadArea(){
+  const o=observer(), btn=$('btnOffline'), info=$('offInfo');
+  if (!o){ toast('Kies eerst een standpunt of wacht op je GPS.'); return; }
+  if (navigator.onLine===false){ toast('Je bent offline. Download een gebied terwijl je internet hebt.'); return; }
+  if (!('caches' in window)){ toast('Deze browser kan niets offline bewaren.'); return; }
+  try{ if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); }catch(e){}
+  const far=Math.min(st.maxDist,150);
+  const jobs=[...tilesAround(o,8,(OFF_R+far+10)*1000), ...tilesAround(o,10,(OFF_R+24)*1000), ...tilesAround(o,11,OFF_R*1000)];
+  btn.disabled=true; let done=0, fail=0;
+  const cache=await caches.open(TILE_CACHE), queue=jobs.slice();
+  const worker=async()=>{ while (queue.length){
+    const url=tileUrl(...queue.shift());
+    try{ if (!(await cache.match(url,{ignoreVary:true}))){ const r=await fetch(url,{mode:'cors'}); if (!r.ok) throw 0; await cache.put(url,r); } done++; }
+    catch(e){ fail++; }
+    info.textContent=`Terrein: ${done+fail} van ${jobs.length} tegels…`;
+  } };
+  await Promise.all([worker(),worker(),worker(),worker(),worker(),worker()]);
+  info.textContent='Toppen uit OpenStreetMap laden…';
+  st.osmFail=0; const okPeaks=await ensureOsm(o, OFF_R+far);
+  const areas=LS.get('offline',[]); areas.push({lat:+o.lat.toFixed(3), lon:+o.lon.toFixed(3), name:st.obsSrc==='manual'&&st.obsManual.name||'', t:Date.now()});
+  LS.set('offline',areas.slice(-8));
+  btn.disabled=false; DEM.want=''; // tegels opnieuw inlezen, nu ook z11
+  await renderOffline();
+  toast(fail||!okPeaks ? `Deels gelukt: ${fail} tegels${okPeaks?'':' en de toppen'} niet geladen. Probeer opnieuw met beter bereik.` : 'Klaar: dit gebied werkt nu ook zonder internet.', 7000);
+}
+async function renderOffline(){
+  const areas=LS.get('offline',[]), info=$('offInfo');
+  let txt = areas.length ? `Bewaarde gebieden: ${areas.map(a=>a.name||`${a.lat}, ${a.lon}`).join(' · ')}.` : 'Nog geen gebied bewaard.';
+  try{ if (navigator.storage && navigator.storage.estimate){ const e=await navigator.storage.estimate(); txt+=` Gebruikt: ${(e.usage/1048576).toFixed(0)} MB.`; } }catch(e){}
+  info.textContent=txt;
 }
 
 /* ---------- observer ---------- */
@@ -848,7 +909,7 @@ function drawScene(c, w, h, s, opt){
   let vis=[];
   for (const p of cache.list){
     if (Math.abs(angDiff(p.brg,v.heading))>st.fov/2+1) continue;
-    if (p.hidden && !isT(p) && (!st.showHidden || p.kind==='osm')) continue;
+    if (p.hidden && !isT(p) && !st.showHidden) continue;
     vis.push(p); if (vis.length>=150) break;
   }
   const tp=cache.list.find(isT); if (tp && vis.includes(tp)) vis=[tp].concat(vis.filter(p=>p!==tp));
@@ -869,7 +930,7 @@ function drawScene(c, w, h, s, opt){
     for (const r of placed){
       const {p,x,y}=r, t=isT(p), col=t?'#FFD200':p.kind==='ai'||p.kind==='custom'?'#cfe8ff':'#ffffff';
       const by=Math.min(base, y-14*s);
-      c.globalAlpha=p.hidden?0.45:1;
+      c.globalAlpha=p.hidden?0.4:1;
       c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=3*s; c.beginPath(); c.moveTo(x,by); c.lineTo(x,y-4*s); c.stroke();
       c.strokeStyle=col; c.lineWidth=(t?2:1.2)*s; if (p.hidden) c.setLineDash([3*s,3*s]);
       c.beginPath(); c.moveTo(x,by); c.lineTo(x,y-4*s); c.stroke(); c.setLineDash([]);
@@ -968,8 +1029,9 @@ function updateTop(){
   else if (st.gps && st.gps.acc>60) chips.push(['warn',`GPS ±${Math.round(st.gps.acc)} m`]);
   if (o && o.altSrc==='geschat') chips.push(['warn','Hoogte geschat']);
   if (o && DEM.state==='loading') chips.push(['warn','Terrein laden…']);
-  else if (o && !(st.cache&&st.cache.terrain)) chips.push(['warn','Geen terrein']);
+  else if (o && !(st.cache&&st.cache.terrain)) chips.push(['warn', navigator.onLine===false ? 'Geen terrein offline' : 'Geen terrein']);
   if (st.osmBusy) chips.push(['warn','Toppen laden…']);
+  if (navigator.onLine===false) chips.push(['','Offline']);
   if (st.mode==='live'){
     if (!sensorLive()) chips.push(['warn','Geen kompas: sleep']);
     else if (st.sensor.acc!=null && (st.sensor.acc<0 || st.sensor.acc>25)) chips.push(['warn','Kompas onnauwkeurig · maak een 8']);
@@ -1296,7 +1358,8 @@ $('fov').addEventListener('input',e=>{
     st.camK*=Math.tan(v/2*D2R)/Math.tan(liveBaseFov()/2*D2R); LS.set('camk',st.camK); syncFovUi();
   } else { st.fovUser=true; setFov(v); }
 });
-$('optHidden').onchange=e=>st.showHidden=e.target.checked;
+$('optHidden').onchange=e=>{ st.showHidden=e.target.checked; LS.set('hidden',st.showHidden); };
+$('optHidden').checked=st.showHidden;
 $('optSil').onchange=e=>{ st.showSil=e.target.checked; LS.set('sil',st.showSil); };
 $('optSlant').onchange=e=>{ st.slant=e.target.checked; LS.set('slant',st.slant); };
 $('optSil').checked=st.showSil; $('optSlant').checked=st.slant;
@@ -1304,11 +1367,12 @@ $('optSun').onchange=e=>st.showSun=e.target.checked;
 $('alt').addEventListener('input',e=>{ st.altOverride = e.target.value===''?null:+e.target.value; });
 $('useGps').onclick=()=>{ startGPS(); st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; closeSheets(); toast(st.gps?'Je GPS-locatie wordt gebruikt.':'Wachten op GPS…'); };
 $('resetCorr').onclick=()=>{ withUndo('Kompas- en camerakalibratie gewist.', ()=>{ st.corr=0; st.pcorr=0; st.camK=1; }); syncFovUi(); };
+$('btnOffline').onclick=downloadArea;
 function renderMore(){
-  const o=observer();
+  const o=observer(); renderOffline();
   syncFovUi();
   $('obsInfo').textContent = o ? `Standpunt: ${o.lat.toFixed(4)}, ${o.lon.toFixed(4)}, ${Math.round(o.alt)} m (${o.altSrc})${o.altSrc==='geschat' ? ', vul je hoogte in voor betere resultaten':''}.` : 'Nog geen standpunt.';
-  $('osmInfo').textContent = st.osm ? `${st.osm.peaks.length} toppen uit OpenStreetMap geladen rond ${st.osm.lat.toFixed(2)}, ${st.osm.lon.toFixed(2)}.` : st.osmBusy ? 'Toppen uit OpenStreetMap worden geladen…' : 'Nog geen toppen uit OpenStreetMap (daarvoor is internet nodig).';
+  $('osmInfo').textContent = st.osm ? `${st.osm.peaks.length} toppen uit OpenStreetMap bewaard (${st.osm.areas.length} gebied${st.osm.areas.length>1?'en':''}).` : st.osmBusy ? 'Toppen uit OpenStreetMap worden geladen…' : 'Nog geen toppen uit OpenStreetMap (daarvoor is internet nodig).';
   const ul=$('cpList'); ul.innerHTML='';
   st.custom.forEach((p,i)=>{ const li=document.createElement('li'); li.innerHTML=`<div>${esc(p.name)}<div class="meta">${p.alt} m · ${p.lat}, ${p.lon}</div></div>`; const b=document.createElement('button'); b.className='ghost'; b.textContent='Verwijder'; b.onclick=()=>{ st.custom.splice(i,1); LS.set('custom',st.custom); refreshPeaks(); renderMore(); }; li.appendChild(b); ul.appendChild(li); });
   $('aiInfo').textContent = st.ai.length? `${st.ai.length} aangevulde toppen bewaard.` : '';

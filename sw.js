@@ -1,4 +1,4 @@
-const C='toppen-v2', T='toppen-terrein-v1', CORE=['./','index.html','manifest.webmanifest','icon-180.png','icon-512.png'];
+const C='toppen-v3', T='toppen-terrein-v1', CORE=['./','index.html','manifest.webmanifest','icon-180.png','icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(CORE)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C&&x!==T).map(x=>caches.delete(x)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{
@@ -6,7 +6,7 @@ self.addEventListener('fetch',e=>{
   const url=new URL(req.url);
   // terreintegels veranderen nooit: eerst uit de cache, zo werkt het terrein ook offline op plekken die je al bekeek
   if(url.pathname.includes('/terrarium/')){
-    e.respondWith(caches.open(T).then(c=>c.match(req).then(hit=>hit||fetch(req).then(r=>{ if(r.ok) c.put(req,r.clone()); return r; }))));
+    e.respondWith(caches.open(T).then(c=>c.match(req,{ignoreVary:true}).then(hit=>hit||fetch(req).then(r=>{ if(r.ok) c.put(req,r.clone()); return r; }))));
     return;
   }
   // de app zelf: eerst het netwerk, zodat updates meteen doorkomen; offline uit de cache
