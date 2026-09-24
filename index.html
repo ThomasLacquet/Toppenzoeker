@@ -87,6 +87,11 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
 #detail .d{font-size:.9rem;color:#dfe6ea;margin:3px 0 8px;line-height:1.4}
 #detail .acts{display:flex;gap:6px;flex-wrap:wrap}
 #detail button{padding:6px 10px;font-size:.9rem}
+#detail{max-height:62%;overflow:auto;-webkit-user-select:text;user-select:text}
+#detail .pic{margin:-10px -12px 8px;height:170px;background:#0e161b center/cover no-repeat;border-radius:4px 4px 0 0;display:none}
+#detail .wiki{font-size:.88rem;line-height:1.45;color:#dfe6ea;margin:0 0 8px}
+#detail .wiki a{color:var(--sign)}
+#detail .src{font-size:.72rem;color:var(--muted);margin-top:4px}
 .ai-tag{display:inline-block;font-size:.72rem;background:#fff;color:var(--ink);border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:middle}
 </style>
 </head>
@@ -1017,13 +1022,67 @@ function showDetail(p){
   const dh=Math.round(p.alt-o.alt);
   const box=$('detail'); st.selected=p;
   const tag={ai:'aangevuld',custom:'eigen punt',osm:'OpenStreetMap'}[p.kind];
-  box.innerHTML=`<b>${esc(p.name)}</b>${tag?`<span class="ai-tag">${tag}</span>`:''}
+  box.innerHTML=`<div class="pic" id="dPic"></div><b>${esc(p.name)}</b>${tag?`<span class="ai-tag">${tag}</span>`:''}
     <div class="d">${p.alt} m hoog, ${(g.d/1000).toFixed(1)} km ver, richting ${Math.round(g.brg)}° ${dirName(g.brg)}.<br>${dh>=0?dh+' m hoger':(-dh)+' m lager'} dan jij. ${p.hidden?'Waarschijnlijk verborgen achter een andere berg.':'Waarschijnlijk zichtbaar.'}</div>
+    <p class="wiki" id="dWiki">Foto en info laden…</p>
     <div class="acts"><button id="dTarget">Richt hierop</button><button class="ghost" id="dStand">Sta op deze top</button><button class="ghost" id="dClose">Sluiten</button></div>`;
   box.style.display='block';
   $('dTarget').onclick=()=>{ setTarget(p); box.style.display='none'; };
   $('dStand').onclick=()=>{ setManual(p); if (st.mode!=='pano') setMode('pano'); box.style.display='none'; toast(`Je kijkt nu vanaf ${p.name}.`); };
   $('dClose').onclick=()=>box.style.display='none';
+  peakInfo(p).then(info=>{
+    if (st.selected!==p || box.style.display==='none') return;
+    const pic=$('dPic'), wk=$('dWiki');
+    if (info && info.img){ pic.style.backgroundImage=`url("${info.img.replace(/"/g,'%22')}")`; pic.style.display='block'; }
+    if (info && info.text) wk.innerHTML=`${esc(info.text)}${info.url?` <a href="${esc(info.url)}" target="_blank" rel="noopener">Lees meer</a>`:''}<div class="src">Bron: ${esc(info.src)}</div>`;
+    else if (info && info.img) wk.innerHTML=`<span class="src">Foto: ${esc(info.src)}</span>`;
+    else wk.textContent = navigator.onLine===false ? 'Geen internet: foto en info niet beschikbaar.' : 'Geen foto of artikel gevonden voor deze top.';
+  });
+}
+
+/* ---------- foto en info per top (Wikipedia, anders Wikimedia Commons) ---------- */
+const INFO=new Map();
+const bare = t => norm(String(t).replace(/\s*\(.*?\)\s*/g,' ')).replace(/[^a-z0-9]+/g,' ').trim();
+function nameMatch(title,name){
+  const a=bare(title), b=bare(name); if (!a||!b) return false;
+  if (a===b || a.includes(b) || b.includes(a)) return true;
+  const w=b.split(' ').filter(x=>x.length>=5); return w.length>0 && w.every(x=>a.includes(x));
+}
+async function getJSON(url){
+  const ac=new AbortController(), t=setTimeout(()=>ac.abort(),8000);
+  try{ const r=await fetch(url,{signal:ac.signal}); return r.ok ? await r.json() : null; }catch(e){ return null; } finally{ clearTimeout(t); }
+}
+async function wikiNear(lang,p){
+  const u=`https://${lang}.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=geosearch&ggscoord=${p.lat}|${p.lon}&ggsradius=3000&ggslimit=15`+
+    `&prop=pageimages|extracts|coordinates&piprop=thumbnail&pithumbsize=640&exintro=1&explaintext=1&exsentences=3`;
+  const j=await getJSON(u); const pages=j&&j.query&&j.query.pages ? Object.values(j.query.pages) : [];
+  const hit=pages.filter(q=>nameMatch(q.title,p.name)).sort((a,b)=>(a.index||0)-(b.index||0))[0];
+  if (!hit) return null;
+  return {text:(hit.extract||'').trim(), img:hit.thumbnail&&hit.thumbnail.source, url:`https://${lang}.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/ /g,'_'))}`, src:`Wikipedia (${lang})`};
+}
+async function commonsImage(p){
+  const u=`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=5`+
+    `&gsrsearch=${encodeURIComponent('"'+p.name+'" filetype:bitmap')}&prop=imageinfo&iiprop=url&iiurlwidth=640`;
+  const j=await getJSON(u); const pages=j&&j.query&&j.query.pages ? Object.values(j.query.pages).sort((a,b)=>(a.index||0)-(b.index||0)) : [];
+  const f=pages.find(q=>q.imageinfo&&q.imageinfo[0]&&nameMatch(q.title.replace(/^File:/,'').replace(/\.[a-z]+$/i,''),p.name));
+  return f ? {img:f.imageinfo[0].thumburl||f.imageinfo[0].url, src:'Wikimedia Commons'} : null;
+}
+function peakInfo(p){
+  const key=p.name+'|'+p.lat.toFixed(3)+'|'+p.lon.toFixed(3);
+  if (INFO.has(key)) return INFO.get(key);
+  const pr=(async()=>{
+    let best=null;
+    for (const group of [['nl','de','en'],['fr','it']]){
+      const res=await Promise.all(group.map(l=>wikiNear(l,p)));
+      for (const r of res){ if (!r) continue;
+        if (!best) best={...r}; else { if (!best.img && r.img) best.img=r.img; if (!best.text && r.text){ best.text=r.text; best.url=r.url; best.src=r.src; } } }
+      if (best && best.text && best.img) break;
+    }
+    if (!best || !best.img){ const c=await commonsImage(p); if (c){ best=best||{src:c.src}; best.img=c.img; if (!best.text) best.src=c.src; } }
+    if (!best) INFO.delete(key); // later opnieuw proberen (bv. weer online)
+    return best;
+  })();
+  INFO.set(key,pr); return pr;
 }
 function setTarget(p){
   st.target=p; const o=observer();
