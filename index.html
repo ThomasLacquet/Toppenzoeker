@@ -549,24 +549,41 @@ function makeProj(rect, v){
 }
 
 /* ---------- sensors ---------- */
+// kijkrichting van de achtercamera (-z van het toestel) uit alpha/beta/gamma
+function camHeading(e){
+  if (e.alpha==null) return null;
+  const a=e.alpha*D2R, b=e.beta*D2R, g=e.gamma*D2R, cA=Math.cos(a),sA=Math.sin(a),cB=Math.cos(b),sB=Math.sin(b),cG=Math.cos(g),sG=Math.sin(g);
+  const E=-(cA*sG+sA*sB*cG), N=-(sA*sG-cA*sB*cG);
+  if (Math.hypot(E,N)<0.2) return null; // gsm plat: richting onbetrouwbaar
+  return (Math.atan2(E,N)/D2R+360)%360;
+}
 function onOrient(e, absolute){
-  let h=null;
   if (e.beta==null || e.gamma==null) return;
-  const b=e.beta*D2R, g=e.gamma*D2R;
-  // kijkrichting van de achtercamera (-z van het toestel): omhoog-component hangt niet af van alpha
-  const U=-Math.cos(b)*Math.cos(g), p=Math.asin(clamp(U,-1,1))/D2R;
+  const s=st.sensor, b=e.beta*D2R, g=e.gamma*D2R;
+  // omhoog-component hangt niet af van alpha
+  const p=Math.asin(clamp(-Math.cos(b)*Math.cos(g),-1,1))/D2R;
+  let h=null, k;
   if (e.webkitCompassHeading!=null && e.webkitCompassHeading>=0){
-    h=e.webkitCompassHeading; st.sensor.kind='ios';
-  } else if ((absolute||e.absolute) && e.alpha!=null){
-    const a=e.alpha*D2R, cA=Math.cos(a),sA=Math.sin(a),cB=Math.cos(b),sB=Math.sin(b),cG=Math.cos(g),sG=Math.sin(g);
-    const E=-(cA*sG+sA*sB*cG), N=-(sA*sG-cA*sB*cG);
-    if (Math.hypot(E,N)<0.2) return; // gsm plat: richting onbetrouwbaar
-    h=(Math.atan2(E,N)/D2R+360)%360; st.sensor.kind='android';
+    // iPhone: het kompas is traag en schokkerig, de gyroscoop (alpha) snel maar zonder noorden.
+    // Volg de beweging met de gyroscoop en trek het noorden langzaam naar het kompas.
+    st.sensor.kind='ios';
+    const hr=camHeading(e), cmp=e.webkitCompassHeading;
+    if (hr==null){ h=cmp; k=0.25; }
+    else {
+      const diff=angDiff(cmp,hr);
+      s.n=(s.n||0)+1;
+      if (s.off==null || Math.abs(angDiff(diff,s.off))>45) s.off=diff;          // start of grote sprong
+      else s.off=(s.off+angDiff(diff,s.off)*(s.n<60?0.1:0.015)+360)%360;
+      h=(hr+s.off+360)%360; k=0.6;
+    }
+  } else if (absolute||e.absolute){
+    h=camHeading(e); if (h==null) return; k=0.4; st.sensor.kind='android';
   } else return;
-  const s=st.sensor, r=h*D2R, k=s.heading==null?1:0.18;
+  if (s.heading==null) k=1;
+  const r=h*D2R;
   s.sx=s.sx*(1-k)+Math.sin(r)*k; s.sy=s.sy*(1-k)+Math.cos(r)*k;
   s.heading=(Math.atan2(s.sx,s.sy)/D2R+360)%360;
-  s.pitch = k===1 ? p : s.pitch*(1-k)+p*k;
+  s.pitch = k===1 ? p : s.pitch*0.4+p*0.6;
   s.last=performance.now();
 }
 let sensorsBound=false;
