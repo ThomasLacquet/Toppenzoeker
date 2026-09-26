@@ -119,6 +119,13 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   .sheet.open{transform:translate(-50%,0)}
   .card h1{font-size:2rem}.ridge{height:28px;margin-bottom:10px}
 }
+/* rotatievergrendeling + liggend: iconen draaien mee zoals in de iPhone-camera */
+.side button>*, .bar.bottom .tool>svg{transition:transform .25s}
+body[data-rot="90"] .side button>*, body[data-rot="90"] .bar.bottom .tool>svg{transform:rotate(90deg)}
+body[data-rot="-90"] .side button>*, body[data-rot="-90"] .bar.bottom .tool>svg{transform:rotate(-90deg)}
+body[data-rot="90"] .side button, body[data-rot="-90"] .side button{font-size:0}
+body[data-rot="90"] .side button.shutter span, body[data-rot="-90"] .side button.shutter span{transform:none}
+@media (prefers-reduced-motion: reduce){ .side button>*, .bar.bottom .tool>svg{transition:none} }
 </style>
 </head>
 <body>
@@ -791,7 +798,7 @@ document.addEventListener('visibilitychange', ()=>{
 
 /* ---------- modes ---------- */
 function setMode(m){
-  st.mode=m; $('detail').style.display='none'; document.body.className='m-'+m;
+  st.mode=m; $('detail').style.display='none'; document.body.className='m-'+m; document.body.dataset.rot=0;
   video.style.display = m==='live' ? 'block':'none';
   if (m!=='live'){ stopCamera(); st.zoom=1; video.style.transform=''; }
   ['tLive','tPano'].forEach(id=>$(id).classList.remove('active')); $('tPhoto').classList.remove('active');
@@ -923,7 +930,7 @@ const dirName = h => DIRS[Math.round(h/22.5)%16];
 function liveTurn(){
   if (!sensorLive() || st.sensor.devRoll==null) return {q:0, r:0};
   const R=angDiff(st.sensor.devRoll, screenAngle());
-  let q=st.vq||0; if (Math.abs(angDiff(R,q))>55) q=Math.round(R/90)*90; st.vq=((q+180)%360+360)%360-180;
+  let q=st.vq||0; if (Math.abs(angDiff(R,q))>50) q=Math.round(R/90)*90; st.vq=((q+180)%360+360)%360-180;
   return {q:st.vq, r:angDiff(R,st.vq)};
 }
 function viewRect(w,h){
@@ -938,6 +945,20 @@ function viewRect(w,h){
 function silAt(sil,az){
   const b=(az%360+360)%360*4, i=Math.floor(b)%1440, j=(i+1)%1440, f=b-Math.floor(b);
   const a=sil[i]*(1-f)+sil[j]*f; return a<-60 ? -2 : a;
+}
+// Grootste rechthoek (in de assen van het beeldkader) die na draaien met 'roll' nog op het scherm past.
+// Zonder draaiing is dat gewoon het scherm; zo vallen de namen tijdens het kantelen niet van het scherm.
+function visibleRect(rect, w, h, roll){
+  const cx=w/2, cy=h/2;
+  const q=Math.round(roll/(Math.PI/2))*(Math.PI/2), phi=roll-q, c=Math.abs(Math.cos(phi)), sn=Math.abs(Math.sin(phi));
+  const swap=Math.abs(Math.round(q/(Math.PI/2)))%2===1, A=(swap?h:w)/2, B=(swap?w:h)/2;  // scherm in de assen van het kader
+  if (sn<0.02) return {x0:cx-A, x1:cx+A, y0:cy-B, y1:cy+B};
+  let best={x0:cx,x1:cx,y0:cy,y1:cy}, area=0;
+  for (let t=0.3;t<=1.001;t+=0.05){
+    const b=B*t, a=Math.min((A-b*sn)/c, (B-b*c)/sn); if (a<=0) continue;
+    if (a*b>area){ area=a*b; best={x0:cx-a, x1:cx+a, y0:cy-b, y1:cy+b}; }
+  }
+  return best;
 }
 // bergkammen zoals PeakFinder: dichtbij fel en dik, veraf dun en vaag
 function drawRidges(c, hz, P, v, half, s){
@@ -965,6 +986,8 @@ function drawScene(c, w, h, s, opt){
   // gsm scheef gehouden: de hele overlay meedraaien met het camerabeeld
   const roll=opt.roll||0;
   if (roll){ c.save(); c.translate(w/2,h/2); c.rotate(roll); c.translate(-w/2,-h/2); }
+  // Welk deel van het (gedraaide) beeldkader is nog op het scherm te zien? Grootste rechthoek die past.
+  const vr=visibleRect(rect, w, h, roll);
   const cache=buildCache(o);
   const half=st.fov/2+3, step=Math.max(0.01, P.degPx*3*s);
   const polyline=(fn)=>{ let started=false; const pts=[];
@@ -1019,11 +1042,11 @@ function drawScene(c, w, h, s, opt){
     const A=60*D2R, cA=Math.cos(A), sA=Math.sin(A), gap=20*s, placed=[];
     for (const p of vis){
       const q=P.p(p.brg,p.elev); if (!q) continue;
-      const x=q[0], y=q[1]; if (x<rect.x+6*s || x>rect.x+rect.w-6*s) continue;
+      const x=q[0], y=q[1]; if (x<Math.max(rect.x,vr.x0)+6*s || x>Math.min(rect.x+rect.w,vr.x1)-6*s) continue;
       if (placed.some(r=>Math.abs(r.x-x)<gap)) continue;
       placed.push({p,x,y});
     }
-    const room=130*s, lo=opt.labelTop+room, hi=Math.max(lo, (opt.bandY||h)-60*s);
+    const room=Math.min(130*s,(vr.y1-vr.y0)*0.45), lo=Math.max(opt.labelTop,vr.y0+4*s)+room, hi=Math.max(lo, Math.min(opt.bandY||h, vr.y1)-60*s);
     let base=clamp(Math.min(...placed.map(r=>r.y), hi+30*s)-30*s, lo, hi);
     if (opt.ui){ st.baseY = st.baseY==null || Math.abs(st.baseY-base)>200 ? base : st.baseY+(base-st.baseY)*0.15; base=st.baseY; }
     const f1=`600 ${17*s}px "Barlow Condensed", sans-serif`, f2=`500 ${12*s}px Barlow, sans-serif`;
@@ -1046,14 +1069,14 @@ function drawScene(c, w, h, s, opt){
       hits.push({rot:true, x:(x+3*s)/s, y:(by-4*s)/s, len:(w1+w2)/s, cA, sA, p});
     }
   } else {
-  const rows=[], rowH=40*s, top=opt.labelTop, maxRows=Math.max(3,Math.floor(opt.labelH*0.55/rowH));
+  const rows=[], rowH=40*s, top=Math.max(opt.labelTop, vr.y0+4*s), maxRows=Math.max(3,Math.floor(opt.labelH*0.55/rowH));
   const f1=`600 ${16*s}px "Barlow Condensed", sans-serif`, f2=`500 ${12*s}px Barlow, sans-serif`;
   for (const p of vis){
     const q=P.p(p.brg,p.elev); if (!q) continue;
     const x=q[0], y=q[1]; if (x<rect.x-4*s || x>rect.x+rect.w+4*s) continue;
     const sub=`${p.alt} m · ${(p.d/1000).toFixed(p.d<10000?1:0)} km`;
     if (!p._w || p._w[0]!==s){ c.font=f1; const w1=c.measureText(p.name).width; c.font=f2; p._w=[s,Math.max(w1,c.measureText(sub).width)]; }
-    const bw=p._w[1]+14*s, bh=34*s, lo=Math.max(rect.x,0)+4*s, hi=Math.min(rect.x+rect.w,w)-bw-4*s, bx=Math.max(lo, Math.min(hi, x-bw/2));
+    const bw=p._w[1]+14*s, bh=34*s, lo=Math.max(rect.x,vr.x0)+4*s, hi=Math.min(rect.x+rect.w,vr.x1)-bw-4*s, bx=Math.max(lo, Math.min(hi, x-bw/2));
     let row=0; while (rows[row] && rows[row].some(r=>bx<r[1]+4*s && bx+bw>r[0]-4*s)) row++;
     if (row>=maxRows) continue;
     (rows[row]=rows[row]||[]).push([bx,bx+bw]);
@@ -1071,6 +1094,20 @@ function drawScene(c, w, h, s, opt){
   }
   }
 
+  // kompasband
+  if (opt.ui){
+    const by=Math.min(opt.bandY, vr.y1-8*s); c.fillStyle='rgba(255,255,255,.85)'; c.strokeStyle='rgba(255,255,255,.7)';
+    c.font=`600 ${12*s}px "Barlow Condensed", sans-serif`; c.textAlign='center';
+    const stepDeg = st.fov>60?15:st.fov>25?5:st.fov>8?1:0.5;
+    const start=Math.ceil((v.heading-st.fov/2)/stepDeg)*stepDeg;
+    for (let a=start; a<=v.heading+st.fov/2; a+=stepDeg){
+      const x=P.xAz((a+360)%360); if (x==null) continue;
+      const n=((a%360)+360)%360, major=n%45===0;
+      c.beginPath(); c.moveTo(x,by); c.lineTo(x,by-(major?10:5)*s); c.stroke();
+      c.fillText(major? dirName(n) : (n%(stepDeg*3)===0? n+'°':''), x, by-13*s);
+    }
+    c.textAlign='left';
+  }
   if (roll) c.restore();
   // doel buiten beeld: pijl
   if (st.target && opt.ui){
@@ -1083,20 +1120,6 @@ function drawScene(c, w, h, s, opt){
       c.fill(); c.font=`600 ${13*s}px "Barlow Condensed", sans-serif`; c.fillText(Math.abs(Math.round(dx))+'°', ax+(right?0:8*s), ay+22*s);
     }
   }
-  // kompasband
-  if (opt.ui){
-    const by=opt.bandY; c.fillStyle='rgba(255,255,255,.85)'; c.strokeStyle='rgba(255,255,255,.7)';
-    c.font=`600 ${12*s}px "Barlow Condensed", sans-serif`; c.textAlign='center';
-    const stepDeg = st.fov>60?15:st.fov>25?5:st.fov>8?1:0.5;
-    const start=Math.ceil((v.heading-st.fov/2)/stepDeg)*stepDeg;
-    for (let a=start; a<=v.heading+st.fov/2; a+=stepDeg){
-      const x=P.xAz((a+360)%360); if (x==null) continue;
-      const n=((a%360)+360)%360, major=n%45===0;
-      c.beginPath(); c.moveTo(x,by); c.lineTo(x,by-(major?10:5)*s); c.stroke();
-      c.fillText(major? dirName(n) : (n%(stepDeg*3)===0? n+'°':''), x, by-13*s);
-    }
-    c.textAlign='left';
-  }
   return hits;
 }
 
@@ -1108,6 +1131,7 @@ function frame(){
   runHorizon(st.hzJob && !st.hz ? 30 : 8);
   if (st.mode==='live'){
     const turn=liveTurn(), base=liveBaseFov();
+    if (document.body.dataset.rot!==String(turn.q)) document.body.dataset.rot=turn.q;
     // kwartslag gedraaid: de breedte van het beeld is nu de hoogte van het scherm
     st.fov=(Math.abs(turn.q)===90 ? 2*Math.atan(Math.tan(base/2*D2R)*h/w)/D2R : base)/st.zoom;
     if (st.zoom!==lastZoom){ lastZoom=st.zoom; video.style.transform = st.zoom>1.001 ? `scale(${st.zoom})` : ''; }
