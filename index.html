@@ -191,6 +191,7 @@ input[type=number],input[type=text],input[type=search]{width:100%;padding:10px;b
   <label class="check"><input type="checkbox" id="optHidden" checked> Toon ook verborgen toppen (gedimd)</label>
   <label class="check"><input type="checkbox" id="optSil" checked> Toon bergkammen over de camera</label>
   <label class="check"><input type="checkbox" id="optSlant" checked> Schuine namen (zoals PeakFinder)</label>
+  <label class="check"><input type="checkbox" id="optTrack" checked> Kam automatisch blijven volgen (live)</label>
   <label class="check"><input type="checkbox" id="optSun" checked> Toon zon en zonnebaan van vandaag</label>
   <h3>Standpunt</h3>
   <div class="row"><label for="alt">Mijn hoogte in meter</label><input type="number" id="alt" inputmode="numeric" placeholder="Automatisch"></div>
@@ -294,6 +295,7 @@ const st = {
   fov:52, fovUser:false, maxDist:120,
   zoom:1,                      // live: digitale zoom op het camerabeeld
   pz:{k:1, ux:.5, uy:.5},      // foto: zoom en middelpunt (als fractie van de foto)
+  track:LS.get('track',true), pend:{h:0,p:0}, lastTrack:0, trackOk:0,
   showHidden:LS.get('hidden',true), showSil:LS.get('sil',true), showSun:true, slant:LS.get('slant',true), baseY:null,
   target:null, selected:null, aligning:false, alignPt:null, lastAlign:null,
   photo:null,                  // {img, exif}
@@ -688,7 +690,8 @@ function onOrient(e, absolute){
       s.n=(s.n||0)+1;
       // noorden alleen bijstellen als de gsm netjes staand of liggend staat, niet halverwege het draaien
       if (s.off==null) s.off=diff;
-      else if (steady){ if (Math.abs(angDiff(diff,s.off))>45 && s.n<30) s.off=diff; else s.off=(s.off+angDiff(diff,s.off)*(s.n<60?0.1:0.015)+360)%360; }
+      // na een kalibratie (Auto, Richt, slepen) vertrouwen we de gyroscoop: het kompas zou de correctie weer laten wegdrijven
+      else if (steady && !s.lock){ if (Math.abs(angDiff(diff,s.off))>45 && s.n<30) s.off=diff; else s.off=(s.off+angDiff(diff,s.off)*(s.n<60?0.1:0.01)+360)%360; }
       h=(hr+s.off+360)%360; k=0.6;
     }
     if (h==null) return;
@@ -1057,6 +1060,7 @@ function frame(){
     if (st.zoom!==lastZoom){ lastZoom=st.zoom; video.style.transform = st.zoom>1.001 ? `scale(${st.zoom})` : ''; }
   }
   const o=observer(); if (o){ ensureDem(o); ensureOsm(o); }
+  stepPend(); autoTrack(o);
   const rect=viewRect(w,h);
   if (st.mode==='photo' && st.photo){ ctx.fillStyle='#0e1418'; ctx.fillRect(0,0,w,h); ctx.drawImage(st.photo.img, rect.x,rect.y,rect.w,rect.h); }
   const barBottom=document.querySelector('.bar.top').getBoundingClientRect().bottom;
@@ -1091,6 +1095,8 @@ function updateTop(){
     const c=Math.round(st.corr), pc=Math.round(st.pcorr);
     if (c||pc) chips.push(['tap resetcal',`Correctie ${c?`${c>0?'+':''}${c}°`:''}${pc?` ↕${pc>0?'+':''}${pc}°`:''} ×`]);
     if (st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
+    if (st.track && st.hold!=null) chips.push(['','Volgen gepauzeerd']);
+    else if (st.track && performance.now()-st.trackOk<5000) chips.push(['ok','Volgt de kam']);
   }
   const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
   if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
@@ -1098,19 +1104,28 @@ function updateTop(){
 // op de oranje locatiechip tikken: opnieuw om toestemming vragen
 $('chips').addEventListener('click', e=>{
   if (e.target.closest('.retry') && st.gpsErr){ st.gpsErr=null; startGPS(); st.obsSrc='gps'; toast('Locatie opnieuw aangevraagd…'); }
-  if (e.target.closest('.resetcal')) withUndo('Correctie gewist.', ()=>{ st.corr=0; st.pcorr=0; });
+  if (e.target.closest('.resetcal')) withUndo('Correctie gewist.', ()=>{ st.corr=0; st.pcorr=0; st.sensor.lock=false; });
 });
 let toastT; function toast(m,ms=4500,act){
   const t=$('toast'); t.textContent=m;
   if (act){ const b=document.createElement('button'); b.className='ghost'; b.textContent=act.label; b.onclick=()=>{ t.style.display='none'; act.fn(); }; t.appendChild(b); }
   t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',ms);
 }
+// correctie vloeiend laten inschuiven i.p.v. te springen
+function nudge(dh,dp){ st.pend.h+=dh; st.pend.p+=dp; st.sensor.lock=true; }
+function stepPend(){
+  const p=st.pend; if (!p.h && !p.p) return;
+  const fh=Math.abs(p.h)<0.02?p.h:p.h*0.3, fp=Math.abs(p.p)<0.02?p.p:p.p*0.3;
+  st.corr+=fh; st.pcorr+=fp; p.h-=fh; p.p-=fp;
+  if (!p.h && !p.p) saveCal();
+}
 // kalibratie met 'ongedaan maken'
 function saveCal(){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); LS.set('camk',st.camK); }
 function withUndo(msg, change){
+  st.corr+=st.pend.h; st.pcorr+=st.pend.p; st.pend={h:0,p:0};   // lopende animatie afronden
   const prev={corr:st.corr, pcorr:st.pcorr, camK:st.camK, view:{...st.view}, fov:st.fov};
   change(); saveCal();
-  toast(msg, 7000, {label:'Ongedaan', fn:()=>{ Object.assign(st,{corr:prev.corr,pcorr:prev.pcorr,camK:prev.camK}); st.view=prev.view; if (st.mode!=='live') setFov(prev.fov); saveCal(); syncFovUi(); }});
+  toast(msg, 6000, {label:'Ongedaan', fn:()=>{ st.pend={h:0,p:0}; Object.assign(st,{corr:prev.corr,pcorr:prev.pcorr,camK:prev.camK}); st.view=prev.view; if (st.mode!=='live') setFov(prev.fov); saveCal(); syncFovUi(); }});
 }
 
 /* ---------- interaction ---------- */
@@ -1156,7 +1171,7 @@ addEventListener('pointermove', e=>{
 function endPtr(e){
   pts.delete(e.pointerId); if (pts.size<2) pinch=null;
   if (drag && !drag.moved && performance.now()-drag.t<500) tap(e.clientX,e.clientY);
-  if (drag && drag.moved && sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); }
+  if (drag && drag.moved && sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); st.sensor.lock=true; holdTrack(); }
   drag=null;
 }
 addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
@@ -1264,12 +1279,33 @@ $('btnAuto').onclick=()=>{
   const o=observer(); if (!o){ toast('Wachten op je locatie.'); return; }
   const cache=buildCache(o); if (!cache.terrain){ toast('Het terrein is nog niet geladen. Probeer zo opnieuw.'); return; }
   if (Math.abs(st.roll||0)>8*D2R){ toast('Houd je gsm recht (staand, of liggend met het scherm mee gedraaid) voor Auto. Scheef? Gebruik Richt.', 6000); return; }
-  const r=autoAlign(cache);
-  if (!r) { toast('De bergkam is niet duidelijk genoeg te herkennen. Richt op een heldere skyline, of gebruik ◎.', 6000); return; }
-  if (!r.dh && !r.dp){ toast('De kam past al.'); return; }
-  withUndo(`Uitgelijnd op de bergkam (${r.dh>=0?'+':''}${r.dh.toFixed(1)}°, ↕${r.dp>=0?'+':''}${r.dp.toFixed(1)}°).`, ()=>{ st.corr+=r.dh; st.pcorr+=r.dp; LS.set('tipDone',1); });
+  st.hold=null;
+  const r=autoAlign(cache, 20);
+  if (!r) { toast('De bergkam is niet duidelijk genoeg te herkennen. Richt op een heldere skyline, of gebruik Richt.', 6000); return; }
+  st.lastTrack=performance.now();
+  if (Math.abs(r.dh)<0.3 && Math.abs(r.dp)<0.3){ nudge(r.dh,r.dp); st.trackOk=performance.now(); toast('De kam past al.'); return; }
+  withUndo(`Uitgelijnd op de bergkam (${r.dh>=0?'+':''}${r.dh.toFixed(1)}°, ↕${r.dp>=0?'+':''}${r.dp.toFixed(1)}°).`, ()=>{ nudge(r.dh,r.dp); st.trackOk=performance.now(); LS.set('tipDone',1); });
 };
-function autoAlign(cache){
+// Automatisch meevolgen: als de gsm even stil is, om de 2 s de kam zoeken en kleine afwijkingen
+// vloeiend wegwerken. Alleen bij een zekere herkenning; grote sprongen blijven voor de Auto-knop.
+const steadyBuf=[];
+// handmatig bijgesteld: niet terugvechten tot je de gsm ergens anders op richt (of zelf Auto tikt)
+function holdTrack(){ st.hold = st.sensor.heading!=null ? st.sensor.heading : 0; }
+function autoTrack(o){
+  const now=performance.now(), s=st.sensor;
+  if (s.heading!=null){ steadyBuf.push([now,s.heading,s.pitch]); while (steadyBuf.length && now-steadyBuf[0][0]>900) steadyBuf.shift(); }
+  if (!st.track || st.mode!=='live' || !st.camOn || !video.videoWidth || !o || drag || pinch || st.aligning) return;
+  if (now-st.lastTrack<2000 || !sensorLive() || Math.abs(st.roll||0)>8*D2R || steadyBuf.length<5) return;
+  const a=steadyBuf[0]; if (Math.abs(angDiff(s.heading,a[1]))>1.2 || Math.abs(s.pitch-a[2])>1.2) return;   // nog aan het bewegen
+  if (st.hold!=null){ if (Math.abs(angDiff(s.heading,st.hold))>15) st.hold=null; else return; }
+  const cache=st.cache; if (!cache || !cache.terrain) return;
+  st.lastTrack=now;
+  const r=autoAlign(cache, 3);
+  if (!r || r.cost>2.2) return;
+  if (Math.abs(r.dh)>0.1 || Math.abs(r.dp)>0.1) nudge(r.dh*0.8, r.dp*0.8);
+  st.trackOk=now;
+}
+function autoAlign(cache, maxDeg=20){
   const cw=cv.clientWidth, ch=cv.clientHeight, S=0.25, W=Math.round(cw*S), H=Math.round(ch*S);
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const g=c.getContext('2d',{willReadFrequently:true});
@@ -1289,7 +1325,7 @@ function autoAlign(cache){
   }
   let wsum=0; for (let x=0;x<W;x++) wsum+=wt[x];
   if (wsum<W*0.25) return null;
-  const pxDeg=S/P.degPx, Rg=Math.min(Math.round(20*pxDeg), 120);
+  const pxDeg=S/P.degPx, Rg=Math.max(2, Math.min(Math.round(maxDeg*pxDeg), 120));
   const model=new Float32Array(W+2*Rg);
   for (let j=0;j<model.length;j++){
     const az=P.u((j-Rg)/S, ch/2).az, q=P.p(az, silAt(cache.sil,az));
@@ -1301,10 +1337,14 @@ function autoAlign(cache){
   let best=[1e9,0,0];
   for (let sx=-Rg;sx<=Rg;sx++) for (let sy=-Rg;sy<=Rg;sy++){ const cst=cost(sx,sy); if (cst<best[0]) best=[cst,sx,sy]; }
   const c0=cost(0,0);
-  // alleen toepassen als de kam duidelijk beter past dan nu
-  if (!(best[1]||best[2])) return {dh:0,dp:0};
-  if (best[0]>3 || best[0]>c0*0.75) return null;
-  return {dh:best[1]/pxDeg, dp:best[2]/pxDeg};
+  if (best[0]>3) return null;                                   // kam niet herkend
+  // een grote sprong moet duidelijk beter passen; een kleine bijstelling mag altijd
+  const big=Math.hypot(best[1],best[2])/pxDeg>1.5;
+  if (big && best[0]>c0*0.75) return null;
+  // subpixel: parabool door de buren van het minimum
+  const sub=(a,b,c)=>{ const d=a-2*b+c; return d>1e-6 ? clamp((a-c)/(2*d),-0.5,0.5) : 0; };
+  const fx=sub(cost(best[1]-1,best[2]),best[0],cost(best[1]+1,best[2])), fy=sub(cost(best[1],best[2]-1),best[0],cost(best[1],best[2]+1));
+  return {dh:(best[1]+fx)/pxDeg, dp:(best[2]+fy)/pxDeg, cost:best[0]};
 }
 
 /* ---------- align ---------- */
@@ -1351,7 +1391,7 @@ function applyAlign(p,x,y){
     if (sensorLive()){ st.corr+=dh; st.pcorr+=dp; }
     else { st.view.heading=(st.view.heading+dh+360)%360; st.view.pitch=clamp(st.view.pitch+dp,-45,45); }
   }
-  if (sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); }
+  if (sensorLive()){ LS.set('corr',st.corr); LS.set('pcorr',st.pcorr); st.sensor.lock=true; holdTrack(); }
   closeSheets(); st.alignPt=null; st.aligning=st.mode==='photo';
   banner(msg);
 }
@@ -1427,9 +1467,10 @@ $('optSil').onchange=e=>{ st.showSil=e.target.checked; LS.set('sil',st.showSil);
 $('optSlant').onchange=e=>{ st.slant=e.target.checked; LS.set('slant',st.slant); };
 $('optSil').checked=st.showSil; $('optSlant').checked=st.slant;
 $('optSun').onchange=e=>st.showSun=e.target.checked;
+$('optTrack').onchange=e=>{ st.track=e.target.checked; LS.set('track',st.track); }; $('optTrack').checked=st.track;
 $('alt').addEventListener('input',e=>{ st.altOverride = e.target.value===''?null:+e.target.value; });
 $('useGps').onclick=()=>{ startGPS(); st.obsSrc='gps'; st.altOverride=null; $('alt').value=''; closeSheets(); toast(st.gps?'Je GPS-locatie wordt gebruikt.':'Wachten op GPS…'); };
-$('resetCorr').onclick=()=>{ withUndo('Kompas- en camerakalibratie gewist.', ()=>{ st.corr=0; st.pcorr=0; st.camK=1; }); syncFovUi(); };
+$('resetCorr').onclick=()=>{ withUndo('Kompas- en camerakalibratie gewist.', ()=>{ st.corr=0; st.pcorr=0; st.camK=1; st.sensor.lock=false; }); syncFovUi(); };
 $('btnOffline').onclick=downloadArea;
 function renderMore(){
   const o=observer(); renderOffline();
