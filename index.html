@@ -295,7 +295,7 @@ const st = {
   fov:52, fovUser:false, maxDist:120,
   zoom:1,                      // live: digitale zoom op het camerabeeld
   pz:{k:1, ux:.5, uy:.5},      // foto: zoom en middelpunt (als fractie van de foto)
-  track:LS.get('track',true), pend:{h:0,p:0}, lastTrack:0, trackOk:0,
+  track:LS.get('track',true), pend:{h:0,p:0}, lastTrack:0, trackOk:-1e9,
   showHidden:LS.get('hidden',true), showSil:LS.get('sil',true), showSun:true, slant:LS.get('slant',true), baseY:null,
   target:null, selected:null, aligning:false, alignPt:null, lastAlign:null,
   photo:null,                  // {img, exif}
@@ -334,8 +334,8 @@ function fetchTile(z,x,y){
       try{
         const c=document.createElement('canvas'); c.width=c.height=256;
         const g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0);
-        const d=g.getImageData(0,0,256,256).data; e=new Float32Array(65536);
-        for (let i=0;i<65536;i++) e[i]=d[i*4]*256+d[i*4+1]+d[i*4+2]/256-32768;
+        const d=g.getImageData(0,0,256,256).data; e=new Int16Array(65536);
+        for (let i=0;i<65536;i++) e[i]=Math.round(d[i*4]*256+d[i*4+1]+d[i*4+2]/256-32768);
         DEM.tiles.set(k,e);
       }catch(err){ e=null; }
       DEM.pend.delete(k); res(e);
@@ -366,14 +366,17 @@ function ensureDem(o){
   const add=(z,rad)=>{
     const dLat=rad/111320, dLon=rad/(111320*Math.cos(o.lat*D2R));
     const [x1,y1]=tileXY(o.lat+dLat,o.lon-dLon,z), [x2,y2]=tileXY(o.lat-dLat,o.lon+dLon,z);
-    for (let x=Math.floor(x1);x<=Math.floor(x2);x++) for (let y=Math.floor(y1);y<=Math.floor(y2);y++) jobs.push(fetchTile(z,x,y));
+    for (let x=Math.floor(x1);x<=Math.floor(x2);x++) for (let y=Math.floor(y1);y<=Math.floor(y2);y++){ jobs.push(fetchTile(z,x,y)); keep.add(tkey(z,x,y)); }
   };
+  const keep=new Set();
   add(12,400); add(10,24000); add(8,(st.maxDist+10)*1000);
   DEM.state='loading';
   Promise.all(jobs).then(r=>{
     if (DEM.want!==want) return;
     const ok=r.filter(Boolean).length;
     DEM.state = ok===r.length ? 'ok' : ok ? 'part' : 'fail';
+    // geheugen begrenzen: tegels ver van hier weggooien (ze staan nog in de offline-cache)
+    if (DEM.tiles.size>120) for (const k of [...DEM.tiles.keys()]) if (!keep.has(k)) DEM.tiles.delete(k);
     DEM.ver++; st.cache=null;
     if (DEM.state!=='ok') setTimeout(()=>{ if (DEM.want===want) DEM.want=''; }, 30000); // later opnieuw proberen
   });
@@ -469,7 +472,14 @@ function peakAt(lat,lon){
   for (const p of PEAKLIST){ if (Math.abs(p.lat-lat)<0.002 && Math.abs(p.lon-lon)<0.003) return p.alt; }
   return null;
 }
+const obsMemo={};
 function observer(){
+  const m=obsMemo;
+  if (m.src===st.obsSrc && m.gps===st.gps && m.man===st.obsManual && m.ph===st.obsPhoto && m.alt===st.altOverride && m.ver===DEM.ver && m.pl===PEAKLIST) return m.res;
+  Object.assign(m,{src:st.obsSrc, gps:st.gps, man:st.obsManual, ph:st.obsPhoto, alt:st.altOverride, ver:DEM.ver, pl:PEAKLIST});
+  return (m.res=observerCalc());
+}
+function observerCalc(){
   let o=null, given=null, trusted=false;
   if (st.obsSrc==='manual' && st.obsManual){ o={lat:st.obsManual.lat, lon:st.obsManual.lon}; given=st.obsManual.alt; trusted=given!=null; }
   else if (st.obsSrc==='photo' && st.obsPhoto){ o={lat:st.obsPhoto.lat, lon:st.obsPhoto.lon}; given=st.obsPhoto.alt; }
@@ -518,13 +528,20 @@ function blockAngle(o, list, brg, maxAlong, skip){
   return best;
 }
 
-// met terreinmodel: straal per 0,25° en onthoud de hoogste helling tot op elke afstand
-function buildHorizon(o){
+// met terreinmodel: straal per 0,25° en onthoud de hoogste helling tot op elke afstand.
+// Gebeurt in stukjes over meerdere beelden, zodat de app niet bevriest (bv. tijdens het wandelen).
+let hzSeq=0;
+function horizonJob(o){
   const maxD=(st.maxDist+10)*1000, ds=[]; for (let d=60; d<=maxD; d+=Math.max(40,d*0.006)) ds.push(d);
-  const D=Float32Array.from(ds), N=D.length, run=new Float32Array(1440*N), sil=new Float32Array(1440);
-  const mLat=1/111320, mLon=1/(111320*Math.cos(o.lat*D2R)), crests=new Array(1440);
-  for (let i=0;i<1440;i++){
-    const a=i/4*D2R, dx=Math.sin(a)*mLon, dy=Math.cos(a)*mLat, off=i*N;
+  const D=Float32Array.from(ds), N=D.length;
+  return {o:{lat:o.lat,lon:o.lon,eye:o.eye}, demVer:DEM.ver, maxDist:st.maxDist, i:0, D, N,
+    run:new Float32Array(1440*N), sil:new Float32Array(1440), crests:new Array(1440),
+    mLat:1/111320, mLon:1/(111320*Math.cos(o.lat*D2R))};
+}
+function stepHorizon(j, deadline){
+  const {o,D,N,run,sil,crests,mLat,mLon}=j;
+  while (j.i<1440){
+    const i=j.i++, a=i/4*D2R, dx=Math.sin(a)*mLon, dy=Math.cos(a)*mLat, off=i*N;
     let best=-1e9, rising=false, cand=null, pend=null; const cr=[];
     for (let k=0;k<N;k++){
       const d=D[k], lat=o.lat+d*dy, lon=o.lon+d*dx;
@@ -543,22 +560,31 @@ function buildHorizon(o){
     else if (rising && cand) cr.push(Math.atan(cand[0])/D2R, cand[1]);
     crests[i]=cr;
     sil[i] = best>-1e8 ? Math.atan(best)/D2R : -90;
+    if ((i&15)===15 && performance.now()>deadline) return null;
   }
   // elke kam verbinden met de best passende kam op de volgende straal
   const links=new Array(1440);
   for (let i=0;i<1440;i++){
     const a=crests[i], b=crests[(i+1)%1440], l=new Int16Array(a.length/2).fill(-1);
-    for (let j=0;j<a.length;j+=2){
+    for (let jj=0;jj<a.length;jj+=2){
       let bestJ=-1, bestE=1e9;
       for (let m=0;m<b.length;m+=2){
-        const er=Math.abs(b[m+1]-a[j+1])/a[j+1]; if (er>0.15 || Math.abs(b[m]-a[j])>0.8) continue;
+        const er=Math.abs(b[m+1]-a[jj+1])/a[jj+1]; if (er>0.15 || Math.abs(b[m]-a[jj])>0.8) continue;
         if (er<bestE){ bestE=er; bestJ=m; }
       }
-      l[j/2]=bestJ;
+      l[jj/2]=bestJ;
     }
     links[i]=l;
   }
-  return {D,N,run,sil,crests,links};
+  const empty=!sil.some(v=>v>-90);
+  return {id:++hzSeq, o, demVer:j.demVer, maxDist:j.maxDist, D, N, run, sil, crests, links, empty};
+}
+const hzFits = (h,o) => h && h.demVer===DEM.ver && h.maxDist===st.maxDist && geo(h.o,o.lat,o.lon).d<80 && Math.abs(h.o.eye-o.eye)<15;
+// in de frame-lus: een paar milliseconden per beeld verder rekenen
+function runHorizon(budgetMs){
+  const j=st.hzJob; if (!j) return;
+  const r=stepHorizon(j, performance.now()+budgetMs);
+  if (r){ st.hzJob=null; st.hz=r; st.cache=null; }
 }
 function blockedTan(hz,brg,d){
   const lim=d-Math.max(250,d*0.03); if (lim<hz.D[0]) return -1e9;
@@ -569,13 +595,17 @@ function blockedTan(hz,brg,d){
 }
 
 function buildCache(o){
-  const key=[o.lat.toFixed(5),o.lon.toFixed(5),Math.round(o.eye),st.maxDist,PEAKLIST.length,DEM.ver].join('|');
+  const key=[o.lat.toFixed(5),o.lon.toFixed(5),Math.round(o.eye),st.maxDist,PEAKLIST.length,DEM.ver,st.hz?st.hz.id:0].join('|');
   const c=st.cache;
   if (c && c.key===key) return c;
   let hz=null;
-  if (c && c.hz && c.demVer===DEM.ver && c.maxDist===st.maxDist && geo(c.o,o.lat,o.lon).d<80 && Math.abs(c.o.eye-o.eye)<15) hz=c.hz;
-  else if (DEM.state==='ok' || DEM.state==='part' || DEM.ver>0) hz=buildHorizon(o);
-  if (hz && !hz.sil.some(a=>a>-90)) hz=null; // geen terrein beschikbaar
+  if (hzFits(st.hz,o)) hz=st.hz;
+  else {
+    // nieuwe horizon starten (in stukjes); intussen de vorige gebruiken als die nog in de buurt is
+    if ((DEM.state==='ok' || DEM.state==='part' || DEM.ver>0) && !(st.hzJob && st.hzJob.demVer===DEM.ver && st.hzJob.maxDist===st.maxDist && geo(st.hzJob.o,o.lat,o.lon).d<80)) st.hzJob=horizonJob(o);
+    if (st.hz && st.hz.maxDist===st.maxDist && geo(st.hz.o,o.lat,o.lon).d<3000) hz=st.hz;
+  }
+  if (hz && hz.empty) hz=null; // geen terrein beschikbaar
 
   const near=[];
   for (const p of PEAKLIST){
@@ -587,6 +617,7 @@ function buildCache(o){
   for (const p of near){
     if (p.d<250 || p.d>st.maxDist*1000) continue;
     if (hz){ const t=(p.alt-o.eye-drop(p.d))/p.d; p.hidden = t < blockedTan(hz,p.brg,p.d) - 0.003; }
+    else if (st.hzJob && p.kind==='osm') p.hidden=false;   // terrein is onderweg: dure schatting overslaan
     else p.hidden = blockAngle(o, cone, p.brg, p.d-600, p) > p.elev + 0.2;
     p.score = (p.hidden?-1e5:0) + p.alt + (p.kind==='base'?500:0) + p.elev*40;
     list.push(p);
@@ -594,7 +625,7 @@ function buildCache(o){
   list.sort((a,b)=>b.score-a.score);
   let sil=hz ? hz.sil : null;
   if (!sil){ sil=new Float32Array(1440); for (let i=0;i<1440;i++) sil[i]=blockAngle(o, cone, i/4, (st.maxDist+40)*1000, null); }
-  st.cache={key, o:{lat:o.lat,lon:o.lon,eye:o.eye}, hz, demVer:DEM.ver, maxDist:st.maxDist, list, sil, terrain:!!hz};
+  st.cache={key, hz, list, sil, terrain:!!hz};
   return st.cache;
 }
 
@@ -739,13 +770,24 @@ async function startCamera(){
   }
   try{
     const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}, audio:false});
-    video.srcObject=s; await video.play(); st.camOn=true; return true;
+    video.srcObject=s; await video.play(); st.camOn=true; keepAwake(); return true;
   }catch(err){
     toast('De camera start niet. Controleer in Instellingen › Safari › Camera dat toegang is toegestaan, of gebruik Foto of Panorama.', 8000);
     return false;
   }
 }
-function stopCamera(){ const s=video.srcObject; if (s) s.getTracks().forEach(t=>t.stop()); video.srcObject=null; st.camOn=false; }
+function stopCamera(){ const s=video.srcObject; if (s) s.getTracks().forEach(t=>t.stop()); video.srcObject=null; st.camOn=false; releaseWake(); }
+// scherm aan houden tijdens het rondkijken
+let wake=null;
+async function keepAwake(){ try{ if ('wakeLock' in navigator && !wake && document.visibilityState==='visible'){ wake=await navigator.wakeLock.request('screen'); wake.addEventListener('release',()=>{ wake=null; }); } }catch(e){} }
+function releaseWake(){ try{ wake && wake.release(); }catch(e){} wake=null; }
+// terug uit de achtergrond: iOS laat de camera soms zwart of bevroren achter
+document.addEventListener('visibilitychange', ()=>{
+  if (document.visibilityState!=='visible' || st.mode!=='live') return;
+  const t=video.srcObject && video.srcObject.getVideoTracks()[0];
+  if (!t || t.readyState==='ended' || t.muted){ stopCamera(); startCamera(); } else video.play().catch(()=>{});
+  keepAwake(); lastKey='';
+});
 
 /* ---------- modes ---------- */
 function setMode(m){
@@ -860,7 +902,17 @@ $('filePick').addEventListener('change', e=>{ loadPhoto(e.target.files[0]); e.ta
 $('filePick2').addEventListener('change', e=>{ loadPhoto(e.target.files[0]); e.target.value=''; });
 
 /* ---------- drawing ---------- */
-function resize(){ const dpr=devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; if(!st.fovUser && st.mode==='pano') setFov(defaultFov()); }
+// scherper dan 2x levert niets zichtbaars op, maar kost op een iPhone (3x) veel rekenkracht en batterij
+const DPR = () => Math.min(2, devicePixelRatio||1);
+const layout={top:70, bottom:0, rock:'#5f7280'};
+function measureLayout(){
+  layout.top=document.querySelector('.bar.top').getBoundingClientRect().bottom;
+  layout.bottom=document.querySelector('.bar.bottom').getBoundingClientRect().top;
+  layout.rock=getComputedStyle(document.documentElement).getPropertyValue('--rock').trim()||'#5f7280';
+}
+function resize(){ const dpr=DPR(); cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; measureLayout(); lastKey=''; if(!st.fovUser && st.mode==='pano') setFov(defaultFov()); }
+if (window.ResizeObserver) new ResizeObserver(measureLayout).observe(document.querySelector('.bar.top'));
+try{ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{ measureLayout(); lastKey=''; }); }catch(e){}
 addEventListener('resize', resize);
 
 const DIRS=['N','NNO','NO','ONO','O','OZO','ZO','ZZO','Z','ZZW','ZW','WZW','W','WNW','NW','NNW'];
@@ -925,8 +977,7 @@ function drawScene(c, w, h, s, opt){
     c.beginPath(); const pts=polyline(a=>silAt(cache.sil,a));
     if (st.mode==='pano' && pts.length){
       c.lineTo(pts[pts.length-1][0], rect.y+rect.h); c.lineTo(pts[0][0], rect.y+rect.h); c.closePath();
-      const rock=getComputedStyle(document.documentElement).getPropertyValue('--rock').trim()||'#5f7280';
-      c.fillStyle=rock; c.fill();
+      c.fillStyle=layout.rock; c.fill();
     }
     c.strokeStyle='rgba(255,255,255,.9)'; c.lineWidth=2*s; c.stroke();
     if (cache.hz) drawRidges(c, cache.hz, P, v, half, s);
@@ -1050,9 +1101,11 @@ function drawScene(c, w, h, s, opt){
 }
 
 let lastZoom=1;
+let lastKey='', lastDraw=0;
 function frame(){
-  const w=cv.clientWidth, h=cv.clientHeight, dpr=devicePixelRatio||1;
-  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  requestAnimationFrame(frame);
+  const w=cv.clientWidth, h=cv.clientHeight, dpr=DPR(), now=performance.now();
+  runHorizon(st.hzJob && !st.hz ? 30 : 8);
   if (st.mode==='live'){
     const turn=liveTurn(), base=liveBaseFov();
     // kwartslag gedraaid: de breedte van het beeld is nu de hoogte van het scherm
@@ -1061,17 +1114,22 @@ function frame(){
   }
   const o=observer(); if (o){ ensureDem(o); ensureOsm(o); }
   stepPend(); autoTrack(o);
+  updateTop();
+  st.roll = curRoll();
+  // alleen hertekenen als er iets veranderd is (en minstens 1x per seconde voor de zon e.d.)
+  const v=currentView(), cache=o&&buildCache(o);
+  const key=[st.mode,w,h,v.heading.toFixed(2),v.pitch.toFixed(2),st.fov.toFixed(3),st.roll.toFixed(3),cache&&cache.key,
+    st.target&&st.target.name,st.aligning,st.alignPt&&st.alignPt.x,st.showHidden,st.showSil,st.slant,st.showSun,
+    st.baseY&&st.baseY.toFixed(1),layout.top,layout.bottom,st.pz.k,st.pz.ux,st.pz.uy,st.photo&&st.photo.img.src].join('|');
+  if (key===lastKey && now-lastDraw<1000) return;
+  lastKey=key; lastDraw=now;
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
   const rect=viewRect(w,h);
   if (st.mode==='photo' && st.photo){ ctx.fillStyle='#0e1418'; ctx.fillRect(0,0,w,h); ctx.drawImage(st.photo.img, rect.x,rect.y,rect.w,rect.h); }
-  const barBottom=document.querySelector('.bar.top').getBoundingClientRect().bottom;
-  const botTop=document.querySelector('.bar.bottom').getBoundingClientRect().top;
-  let labelTop=Math.max(rect.y+8, barBottom+4), bandY=Math.min(rect.y+rect.h-8, botTop-12);
+  let labelTop=Math.max(rect.y+8, layout.top+4), bandY=Math.min(rect.y+rect.h-8, layout.bottom-12);
   if (st.mode==='live' && st.vq){ labelTop=rect.y+16; bandY=rect.y+rect.h-20; } // gedraaid: eigen randen
-  st.roll = curRoll();
   st.hits = drawScene(ctx, w, h, 1, {rect, labelTop, labelH:Math.max(100, bandY-labelTop), bandY, ui:true, roll:st.roll});
   if (st.aligning && st.alignPt){ ctx.strokeStyle='#ff4d4d'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(st.alignPt.x,st.alignPt.y,14,0,7); ctx.stroke(); }
-  updateTop();
-  requestAnimationFrame(frame);
 }
 
 let chipsHtml='';
@@ -1096,7 +1154,7 @@ function updateTop(){
     if (c||pc) chips.push(['tap resetcal',`Correctie ${c?`${c>0?'+':''}${c}°`:''}${pc?` ↕${pc>0?'+':''}${pc}°`:''} ×`]);
     if (st.zoom>1.01) chips.push(['',`${st.zoom.toFixed(1)}×`]);
     if (st.track && st.hold!=null) chips.push(['','Volgen gepauzeerd']);
-    else if (st.track && performance.now()-st.trackOk<5000) chips.push(['ok','Volgt de kam']);
+    else if (st.track && sensorLive() && performance.now()-st.trackOk<5000) chips.push(['ok','Volgt de kam']);
   }
   const html=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
   if (html!==chipsHtml){ chipsHtml=html; $('chips').innerHTML=html; }
@@ -1305,9 +1363,10 @@ function autoTrack(o){
   if (Math.abs(r.dh)>0.1 || Math.abs(r.dp)>0.1) nudge(r.dh*0.8, r.dp*0.8);
   st.trackOk=now;
 }
+const autoCanvas=document.createElement('canvas');
 function autoAlign(cache, maxDeg=20){
   const cw=cv.clientWidth, ch=cv.clientHeight, S=0.25, W=Math.round(cw*S), H=Math.round(ch*S);
-  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const c=autoCanvas; if (c.width!==W || c.height!==H){ c.width=W; c.height=H; }
   const g=c.getContext('2d',{willReadFrequently:true});
   const vw=video.videoWidth, vh=video.videoHeight, k=Math.max(W/vw,H/vh)*st.zoom;
   const P=screenProj();                       // zelfde moment als het beeld
