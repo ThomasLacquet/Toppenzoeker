@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Toppenzoeker Alpen</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -126,6 +126,12 @@ body[data-rot="-90"] .side button>*, body[data-rot="-90"] .bar.bottom .tool>svg{
 body[data-rot="90"] .side button, body[data-rot="-90"] .side button{font-size:0}
 body[data-rot="90"] .side button.shutter span, body[data-rot="-90"] .side button.shutter span{transform:none}
 @media (prefers-reduced-motion: reduce){ .side button>*, .bar.bottom .tool>svg{transition:none} }
+/* zoomen hoort bij het beeld, niet bij de pagina: geen dubbeltik- of knijpzoom van Safari */
+html,body{touch-action:none}
+.sheet,#detail,#intro{touch-action:pan-y}
+button,label,input{touch-action:manipulation}
+#zoomPill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(112px + env(safe-area-inset-bottom,0px));z-index:5;min-width:48px;height:34px;padding:0 12px;border-radius:17px;background:var(--glass);border:1px solid var(--line);color:var(--sign);font:700 .95rem "Barlow Condensed",sans-serif}
+@media (orientation:landscape) and (max-height:540px){ #zoomPill{bottom:calc(58px + env(safe-area-inset-bottom,0px))} }
 </style>
 </head>
 <body>
@@ -159,6 +165,7 @@ body[data-rot="90"] .side button.shutter span, body[data-rot="-90"] .side button
   <button class="tool" id="tSearch"><svg viewBox="0 0 24 24"><path d="M2 20l6-10 4 6 3-4 7 8z"/><path d="M8 10V4l4 2-4 2"/></svg>Toppen</button>
   <button class="tool" id="tMore"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Meer</button>
 </div>
+<button id="zoomPill" aria-label="Zoomniveau, tik voor 1×, 2× of 4×">1×</button>
 <div id="toast" role="status"></div>
 <div id="detail"></div>
 
@@ -798,7 +805,7 @@ document.addEventListener('visibilitychange', ()=>{
 
 /* ---------- modes ---------- */
 function setMode(m){
-  st.mode=m; $('detail').style.display='none'; document.body.className='m-'+m; document.body.dataset.rot=0;
+  st.mode=m; st.zoomT=null; $('detail').style.display='none'; document.body.className='m-'+m; document.body.dataset.rot=0;
   video.style.display = m==='live' ? 'block':'none';
   if (m!=='live'){ stopCamera(); st.zoom=1; video.style.transform=''; }
   ['tLive','tPano'].forEach(id=>$(id).classList.remove('active')); $('tPhoto').classList.remove('active');
@@ -1137,7 +1144,7 @@ function frame(){
     if (st.zoom!==lastZoom){ lastZoom=st.zoom; video.style.transform = st.zoom>1.001 ? `scale(${st.zoom})` : ''; }
   }
   const o=observer(); if (o){ ensureDem(o); ensureOsm(o); }
-  stepPend(); autoTrack(o);
+  stepPend(); stepZoom(); autoTrack(o); updateZoomPill();
   updateTop();
   st.roll = curRoll();
   // alleen hertekenen als er iets veranderd is (en minstens 1x per seconde voor de zon e.d.)
@@ -1213,31 +1220,60 @@ function withUndo(msg, change){
 /* ---------- interaction ---------- */
 const screenProj = () => makeProj(viewRect(cv.clientWidth,cv.clientHeight), currentView());
 // inzoomen: live = digitaal op het camerabeeld, foto = de foto vergroten, panorama = beeldhoek
-function zoomBy(f, at){
-  if (st.mode==='live'){ st.zoom=clamp(st.zoom*f,1,8); syncFovUi(); return; }
+// Zoomniveau als één getal per modus: live = digitale zoom, foto = vergroting, panorama = t.o.v. de standaardbeeldhoek
+function zoomLevel(){ return st.mode==='live' ? st.zoom : st.mode==='photo' ? st.pz.k : defaultFov()/st.fov; }
+const ZMAX={live:8, photo:16, pano:defaultFov()/2};
+// Zoom naar een doel; 'at' = schermpunt dat op zijn plaats moet blijven (panorama, foto). instant = knijpen.
+function zoomTo(z, at, instant){
+  const max = st.mode==='pano' ? defaultFov()/2 : ZMAX[st.mode];
+  z=clamp(z, st.mode==='pano' ? defaultFov()/120 : 1, max);
+  st.zoomAt = at || null;
+  if (instant){ st.zoomT=null; applyZoom(z, at); } else st.zoomT=z;
+}
+function applyZoom(z, at){
+  if (st.mode==='live'){ st.zoom=z; syncFovUi(); return; }
   if (st.mode==='photo'){
-    const pz=st.pz;
-    if (at && f>1){ const r=viewRect(cv.clientWidth,cv.clientHeight); pz.ux=clamp((at.x-r.x)/r.w,0,1); pz.uy=clamp((at.y-r.y)/r.h,0,1); }
-    else if (pz.k<=1){ pz.ux=pz.uy=.5; }
-    pz.k=clamp(pz.k*f,1,16); if (pz.k<=1){ pz.ux=pz.uy=.5; }
+    const pz=st.pz, r0=viewRect(cv.clientWidth,cv.clientHeight);
+    const ax = at ? at.x : cv.clientWidth/2, ay = at ? at.y : cv.clientHeight/2;
+    const fx=(ax-r0.x)/r0.w, fy=(ay-r0.y)/r0.h;          // welk punt van de foto zit onder de vinger
+    pz.k=z;
+    if (z<=1.001){ pz.k=1; pz.ux=pz.uy=.5; return; }
+    const r1=viewRect(cv.clientWidth,cv.clientHeight);   // na zoomen: middelpunt zo kiezen dat dat punt blijft
+    pz.ux=clamp(fx-(ax-cv.clientWidth/2)/r1.w,0,1); pz.uy=clamp(fy-(ay-cv.clientHeight/2)/r1.h,0,1);
     return;
   }
-  if (at){ const u=screenProj().u(at.x,at.y); st.view.heading=u.az; st.view.pitch=clamp(u.el,-45,45); }
-  st.fovUser=true; setFov(st.fov/f);
+  // panorama: de richting onder je vingers blijft staan
+  const u = at ? screenProj().u(at.x,at.y) : null;
+  st.fovUser=true; setFov(defaultFov()/z);
+  if (u){ const u2=screenProj().u(at.x,at.y); st.view.heading=(st.view.heading+angDiff(u.az,u2.az)+360)%360; st.view.pitch=clamp(st.view.pitch+u.el-u2.el,-45,45); }
+}
+// in de frame-lus: vloeiend naar het doel
+function stepZoom(){
+  if (st.zoomT==null) return;
+  const z=zoomLevel(), t=st.zoomT, n = Math.abs(t-z)<0.01*t ? t : z*Math.pow(t/z,0.3);
+  applyZoom(n, st.zoomAt); if (n===t) st.zoomT=null;
+}
+function zoomBy(f, at){ zoomTo((st.zoomT??zoomLevel())*f, at); }
+$('zoomPill').onclick=()=>{ const z=st.zoomT??zoomLevel(), steps=[1,2,4]; zoomTo(steps.find(v=>v>z*1.05)||1); };
+function updateZoomPill(){
+  const z=zoomLevel(), txt=(z<0.95||z>=1.05 ? (z<10?z.toFixed(1):Math.round(z)) : '1')+'×';
+  const el=$('zoomPill'); if (el.textContent!==txt) el.textContent=txt;
 }
 const pts=new Map(); let drag=null, pinch=null;
 cv.addEventListener('pointerdown', e=>{
-  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if (pts.size===2){ const [a,b]=[...pts.values()]; pinch={d:Math.hypot(a.x-b.x,a.y-b.y), fov:st.fov, zoom:st.zoom, k:st.pz.k}; drag=null; return; }
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+  const now=performance.now();
+  for (const [id,p] of pts) if (now-p.t>4000) pts.delete(id);          // afgebroken aanraking van iOS
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY,t:now});
+  if (pts.size>2) return;
+  if (pts.size===2){ const [a,b]=[...pts.values()]; st.zoomT=null; pinch={d:Math.max(20,Math.hypot(a.x-b.x,a.y-b.y)), z:zoomLevel()}; drag=null; return; }
   const v=currentView(); drag={x:e.clientX,y:e.clientY,h:v.heading,p:v.pitch,corr:st.corr,pcorr:st.pcorr,moved:false,t:performance.now(),degPx:screenProj().degPx};
 });
 addEventListener('pointermove', e=>{
-  if (!pts.has(e.pointerId)) return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (!pts.has(e.pointerId)) return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY,t:performance.now()});
   if (pinch && pts.size===2){
-    const [a,b]=[...pts.values()], f=Math.hypot(a.x-b.x,a.y-b.y)/Math.max(20,pinch.d);
-    if (st.mode==='live'){ st.zoom=clamp(pinch.zoom*f,1,8); syncFovUi(); }
-    else if (st.mode==='photo'){ st.pz.k=clamp(pinch.k*f,1,16); if (st.pz.k<=1) st.pz.ux=st.pz.uy=.5; }
-    else { st.fovUser=true; setFov(pinch.fov/f); }
+    const [a,b]=[...pts.values()], f=Math.hypot(a.x-b.x,a.y-b.y)/pinch.d;
+    zoomTo(pinch.z*f, {x:(a.x+b.x)/2, y:(a.y+b.y)/2}, true);
     return;
   }
   if (!drag) return;
@@ -1257,7 +1293,11 @@ function endPtr(e){
   drag=null;
 }
 addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
-cv.addEventListener('wheel', e=>{ e.preventDefault(); zoomBy(e.deltaY>0?1/1.1:1.1); }, {passive:false});
+// Safari-specifieke gebaren (knijpen op knoppen) nooit de pagina laten zoomen
+['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t, e=>{ if (!e.target.closest || !e.target.closest('.sheet,#detail')) e.preventDefault(); }, {passive:false}));
+const resetPtrs=()=>{ pts.clear(); pinch=null; drag=null; };
+addEventListener('blur', resetPtrs); document.addEventListener('visibilitychange', resetPtrs);
+cv.addEventListener('wheel', e=>{ e.preventDefault(); zoomBy(e.deltaY>0?1/1.1:1.1, st.mode==='live'?null:{x:e.clientX,y:e.clientY}); }, {passive:false});
 
 function curRoll(){ if (st.mode!=='live') return 0; const t=liveTurn(); return (t.q+t.r)*D2R; }
 // schermpunt naar het (niet-gedraaide) beeldvlak van de overlay
@@ -1275,10 +1315,15 @@ function tap(sx,sy){
     return u>=-6 && u<=r.len+6 && w>=-20 && w<=10;
   });
   if (hit){ showDetail(hit.p); return; }
-  if ($('detail').style.display==='block'){ $('detail').style.display='none'; return; }
-  // telescoop: inzoomen rond getikt punt (niet in live, daar zou elke tik het beeld vergroten)
-  if (st.mode!=='live') zoomBy(2,{x,y});
+  if ($('detail').style.display==='block'){ $('detail').style.display='none'; lastTap=null; return; }
+  // dubbeltik = inzoomen rond dat punt (een losse tik zoomde vroeger per ongeluk); in live rond het midden
+  const now=performance.now();
+  if (lastTap && now-lastTap.t<350 && Math.hypot(sx-lastTap.x,sy-lastTap.y)<40){
+    lastTap=null; const z=st.zoomT??zoomLevel();
+    zoomTo(z>=3.5 ? 1 : z*2, st.mode==='live' ? null : {x:sx,y:sy});
+  } else lastTap={t:now,x:sx,y:sy};
 }
+let lastTap=null;
 function showDetail(p){
   const o=observer(); const g=geo(o,p.lat,p.lon);
   const dh=Math.round(p.alt-o.alt);
@@ -1488,8 +1533,8 @@ $('tLive').onclick=goLive; $('goLive').onclick=goLive;
 $('tPano').onclick=goPano; $('goPano').onclick=goPano;
 $('tSearch').onclick=()=>{ openSheet('sheetSearch'); renderResults(); setTimeout(()=>$('q').focus(),250); };
 $('tMore').onclick=()=>{ openSheet('sheetMore'); renderMore(); };
-$('zoomIn').onclick=()=>zoomBy(1.4);
-$('zoomOut').onclick=()=>zoomBy(1/1.4);
+$('zoomIn').onclick=()=>zoomBy(1.5);
+$('zoomOut').onclick=()=>zoomBy(1/1.5);
 
 function parseCoords(s){
   const m=s.match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/); if (!m) return null;
